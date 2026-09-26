@@ -6,7 +6,7 @@ from PyInstaller.utils.hooks import collect_submodules
 hiddenimports = [
     'extractor_core', 'wells_translator_core', 'wells_revisor_core',
     'wells_base_linguistica', 'wells_guia_ptbr', 'wells_isolador_renpy',
-    'sdk_core',
+    'sdk_core', 'dialogue_roundtrip',
     'deobfuscate', 'decompiler', 'decompiler.astdump', 'decompiler.atldecompiler',
     'decompiler.magic', 'decompiler.renpycompat', 'decompiler.sl2decompiler',
     'decompiler.testcasedecompiler', 'decompiler.translate', 'decompiler.util',
@@ -41,6 +41,7 @@ runtime_datas = [
     ('Wells_Revisor/dados_linguisticos/fserb_verbos.txt', 'Wells_Revisor/dados_linguisticos'),
 
     ('Wells_SDK/sdk_core.py', 'Wells_SDK'),
+    ('Wells_SDK/dialogue_roundtrip.py', 'Wells_SDK'),
     ('build_runtime/renpy-7.4.11-sdk', 'renpy-7.4.11-sdk'),
 ]
 
