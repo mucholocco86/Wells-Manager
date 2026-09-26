@@ -1,8 +1,9 @@
 # -*- mode: python ; coding: utf-8 -*-
 from PyInstaller.utils.hooks import collect_submodules
 
-# O SDK fonte permanece intacto no repositório. O build usa somente a cópia
-# reduzida preparada por Wells_SDK/prepare_runtime.py.
+# Wells Manager intentionally does NOT bundle a Ren'Py SDK/runtime. The user
+# selects the game's .exe and Wells uses the Ren'Py/Python runtime distributed
+# with that game.
 hiddenimports = [
     'extractor_core', 'wells_translator_core', 'wells_revisor_core',
     'wells_base_linguistica', 'wells_guia_ptbr', 'wells_isolador_renpy',
@@ -17,10 +18,10 @@ hiddenimports = [
 ]
 hiddenimports += collect_submodules('docx')
 
-# Mantemos a arquitetura física dos módulos Wells dentro do onefile, mas sem
-# empacotar README, caches, scripts de build/teste e cópias duplicadas. O
-# dicionário PT-BR de 25 MB existe uma única vez e é compartilhado pelo Revisor
-# e pela BaseLinguistica.
+# Mantemos a arquitetura física dos módulos Wells dentro do onefile, sem
+# empacotar README, caches, scripts de laboratório, SDK ou runtime Ren'Py. O
+# dicionário PT-BR existe uma única vez e é compartilhado pelo Revisor e pela
+# BaseLinguistica.
 runtime_datas = [
     ('wells.ico', '.'),
 
@@ -42,7 +43,6 @@ runtime_datas = [
 
     ('Wells_SDK/sdk_core.py', 'Wells_SDK'),
     ('Wells_SDK/dialogue_roundtrip.py', 'Wells_SDK'),
-    ('build_runtime/renpy-7.4.11-sdk', 'renpy-7.4.11-sdk'),
 ]
 
 a = Analysis(
