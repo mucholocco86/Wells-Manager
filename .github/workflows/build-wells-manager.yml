@@ -75,24 +75,22 @@ jobs:
         shell: pwsh
         run: |
           $listing = (pyi-archive_viewer -l 'dist/Wells_Manager.exe' | Out-String)
+          $normalized = $listing.Replace('\', '/')
           foreach ($required in @(
-            'Wells_Extractor[\\/]extractor_core\.py',
-            'Wells_Extractor[\\/]unrpyc[\\/]unrpyc\.py',
-            'Wells_Translator[\\/]wells_translator_core\.py',
-            'Wells_Revisor[\\/]wells_revisor_core\.py',
-            'Wells_Revisor[\\/]Palavras_PT-BR\.txt',
-            'Wells_Revisor[\\/]dados_linguisticos[\\/]fserb_icf\.csv',
-            'Wells_SDK[\\/]sdk_core\.py',
-            'renpy-7\.4\.11-sdk[\\/]renpy\.exe'
+            'Wells_Extractor/extractor_core.py',
+            'Wells_Extractor/unrpyc/unrpyc.py',
+            'Wells_Translator/wells_translator_core.py',
+            'Wells_Revisor/wells_revisor_core.py',
+            'Wells_Revisor/Palavras_PT-BR.txt',
+            'Wells_Revisor/dados_linguisticos/fserb_icf.csv',
+            'Wells_SDK/sdk_core.py',
+            'renpy-7.4.11-sdk/renpy.exe'
           )) {
-            # YAML/PowerShell leaves backslashes literal in these strings. The
-            # regex itself therefore needs one escaping backslash before '.'.
-            $pattern = $required -replace '\\\\([.]?)', '\$1'
-            if ($listing -notmatch $pattern) { throw "Recurso obrigatório ausente do EXE: $pattern" }
+            if (-not $normalized.Contains($required)) { throw "Recurso obrigatório ausente do EXE: $required" }
           }
-          $dictionaryCopies = [regex]::Matches($listing, 'Palavras_PT-BR\.txt').Count
+          $dictionaryCopies = [regex]::Matches($normalized, [regex]::Escape('Palavras_PT-BR.txt')).Count
           if ($dictionaryCopies -ne 1) { throw "Esperada 1 cópia do dicionário PT-BR; encontradas: $dictionaryCopies" }
-          if ($listing -match 'Wells_SDK[\\/](prepare_runtime|validate_tutorial)\.py') {
+          if ($normalized.Contains('Wells_SDK/prepare_runtime.py') -or $normalized.Contains('Wells_SDK/validate_tutorial.py')) {
             throw 'Scripts exclusivos do laboratório entraram no executável.'
           }
           Write-Host 'Recursos físicos do Wells validados; dicionário PT-BR presente uma única vez.'
