@@ -35,6 +35,17 @@ def _project_root(path):
     return p
 
 
+def _language(language,message='Informe o idioma da tradução.'):
+    language=(language or '').strip()
+    if not language or not all(c.islower() or c.isdigit() or c=='_' for c in language):
+        raise SDKError(message+' Use letras minúsculas, números ou underscore.')
+    return language
+
+
+def _strings_json(project,language):
+    return _project_root(project)/('wells_strings_'+language+'.json')
+
+
 def _runner(sdk):
     if os.name=='nt' and (sdk/'renpy.exe').is_file(): return [str(sdk/'renpy.exe')]
     if (sdk/'renpy.sh').is_file(): return [str(sdk/'renpy.sh')]
@@ -61,9 +72,7 @@ def run(project,args,log=None):
 
 
 def generate_translations(project,language,empty=True,log=None):
-    language=(language or '').strip()
-    if not language or not all(c.islower() or c.isdigit() or c=='_' for c in language):
-        raise SDKError('Informe o idioma com letras minúsculas, números ou underscore.')
+    language=_language(language,'Informe o idioma.')
     args=['translate',language]
     if language=='rot13': args.append('--rot13')
     elif language=='piglatin': args.append('--piglatin')
@@ -71,24 +80,29 @@ def generate_translations(project,language,empty=True,log=None):
     return run(project,args,log)
 
 
-def extract_string_translations(project,language,log=None):
-    language=(language or '').strip()
-    if not language: raise SDKError('Informe o idioma da tradução.')
-    return run(project,['extract_strings',language],log)
+def extract_string_translations(project,language,log=None,destination=None):
+    language=_language(language)
+    destination=Path(destination).expanduser().resolve() if destination else _strings_json(project,language)
+    result=run(project,['extract_strings',language,str(destination)],log)
+    result['file']=str(destination)
+    return result
 
 
-def merge_string_translations(project,language,replace=False,log=None):
-    language=(language or '').strip()
-    if not language: raise SDKError('Informe o idioma da tradução.')
-    args=['merge_strings',language]
+def merge_string_translations(project,language,replace=False,log=None,source=None,reverse=False):
+    language=_language(language)
+    source=Path(source).expanduser().resolve() if source else _strings_json(project,language)
+    if not source.is_file():
+        raise SDKError("Arquivo de strings não encontrado: {}. Use 'Extrair strings' primeiro.".format(source))
+    args=['merge_strings',language,str(source)]
+    if reverse: args.append('--reverse')
     if replace: args.append('--replace')
-    return run(project,args,log)
+    result=run(project,args,log)
+    result['file']=str(source)
+    return result
 
 
 def reverse_language(project,language,log=None):
-    language=(language or '').strip()
-    if not language: raise SDKError('Informe o idioma que será invertido.')
-    return run(project,['translate',language,'--reverse'],log)
+    return merge_string_translations(project,language,replace=False,log=log,reverse=True)
 
 
 def update_launcher_translations(project,log=None):
