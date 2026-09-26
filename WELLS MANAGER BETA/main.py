@@ -23,6 +23,11 @@ class WellsManager(tk.Tk):
   try:self.iconbitmap(str(ROOT/'wells.ico'))
   except Exception:pass
   self.events=queue.Queue(); self.busy=False; self.pending_tl=None; self.pending_session=None; self.pending_format=None; self.pending_blocks=None; self.project=None; self.last_browse_dir=APP_DIR
+  self.settings_path=APP_DIR/'Wells_Settings.json'; self.last_translation='english'
+  try:
+   saved=json.loads(self.settings_path.read_text(encoding='utf-8'))
+   if isinstance(saved.get('last_translation'),str) and saved['last_translation'].strip():self.last_translation=saved['last_translation'].strip()
+  except Exception:pass
   self.log_path=APP_DIR/'Wells_Log.txt'
   try:self.log_path.write_text('',encoding='utf-8')
   except Exception:pass
@@ -57,6 +62,9 @@ class WellsManager(tk.Tk):
   text=str(text); self.log.configure(state='normal'); self.log.insert('end',text+'\n'); self.log.see('end'); self.log.configure(state='disabled')
   try:
    with self.log_path.open('a',encoding='utf-8',newline='\n') as f:f.write(text+'\n')
+  except Exception:pass
+ def _save_last_translation(self):
+  try:self.settings_path.write_text(json.dumps({'last_translation':self.last_translation},ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
   except Exception:pass
  def _set_busy(self,v):
   self.busy=v
@@ -122,12 +130,12 @@ class WellsManager(tk.Tk):
   self._run(title+'...',w,d)
  def sdk_generate(self):
   if not self._need_project():return
-  win=tk.Toplevel(self); win.title('Gerar Traduções'); win.resizable(False,False); win.configure(bg='#222222'); win.transient(self); win.grab_set(); lang=tk.StringVar(); empty=tk.BooleanVar(value=True)
+  win=tk.Toplevel(self); win.title('Gerar Traduções'); win.resizable(False,False); win.configure(bg='#222222'); win.transient(self); win.grab_set(); lang=tk.StringVar(value=self.last_translation); empty=tk.BooleanVar(value=True)
   tk.Label(win,text='Idioma',bg='#222',fg='white').grid(row=0,column=0,padx=12,pady=(12,5),sticky='w'); tk.Entry(win,textvariable=lang,width=25).grid(row=0,column=1,padx=12,pady=(12,5)); tk.Checkbutton(win,text='Gerar strings vazias',variable=empty,bg='#222',fg='white',selectcolor='#333',activebackground='#222',activeforeground='white').grid(row=1,column=0,columnspan=2,padx=12,sticky='w')
   def go(kind):
    l=lang.get().strip()
    if not l:return messagebox.showerror(APP,'Informe o idioma.',parent=win)
-   win.destroy()
+   self.last_translation=l; self._save_last_translation(); win.destroy()
    funcs={'generate':lambda p,log:sdk_core.generate_translations(p,l,empty.get(),log),'extract':lambda p,log:sdk_core.extract_string_translations(p,l,log),'merge':lambda p,log:sdk_core.merge_string_translations(p,l,False,log),'replace':lambda p,log:sdk_core.merge_string_translations(p,l,True,log),'reverse':lambda p,log:sdk_core.reverse_language(p,l,log)}
    names={'generate':'Gerar traduções','extract':'Extrair strings','merge':'Mesclar strings','replace':'Mesclar/substituir strings','reverse':'Inverter idioma'}; self._sdk(names[kind],funcs[kind])
   bf=tk.Frame(win,bg='#222'); bf.grid(row=2,column=0,columnspan=2,padx=10,pady=12)
