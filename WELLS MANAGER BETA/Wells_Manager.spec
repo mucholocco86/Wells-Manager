@@ -17,18 +17,38 @@ hiddenimports = [
 ]
 hiddenimports += collect_submodules('docx')
 
+# Mantemos a arquitetura física dos módulos Wells dentro do onefile, mas sem
+# empacotar README, caches, scripts de build/teste e cópias duplicadas. O
+# dicionário PT-BR de 25 MB existe uma única vez e é compartilhado pelo Revisor
+# e pela BaseLinguistica.
+runtime_datas = [
+    ('wells.ico', '.'),
+
+    ('Wells_Extractor/extractor_core.py', 'Wells_Extractor'),
+    ('Wells_Extractor/unrpyc', 'Wells_Extractor/unrpyc'),
+
+    ('Wells_Translator/wells_translator_core.py', 'Wells_Translator'),
+
+    ('Wells_Revisor/wells_revisor_core.py', 'Wells_Revisor'),
+    ('Wells_Revisor/wells_base_linguistica.py', 'Wells_Revisor'),
+    ('Wells_Revisor/wells_guia_ptbr.py', 'Wells_Revisor'),
+    ('Wells_Revisor/wells_isolador_renpy.py', 'Wells_Revisor'),
+    ('Wells_Revisor/Palavras_PT-BR.txt', 'Wells_Revisor'),
+    ('Wells_Revisor/dados_linguisticos/LICENSE_fserb_MIT.txt', 'Wells_Revisor/dados_linguisticos'),
+    ('Wells_Revisor/dados_linguisticos/fserb_conjugacoes.txt', 'Wells_Revisor/dados_linguisticos'),
+    ('Wells_Revisor/dados_linguisticos/fserb_icf.csv', 'Wells_Revisor/dados_linguisticos'),
+    ('Wells_Revisor/dados_linguisticos/fserb_lexico.txt', 'Wells_Revisor/dados_linguisticos'),
+    ('Wells_Revisor/dados_linguisticos/fserb_verbos.txt', 'Wells_Revisor/dados_linguisticos'),
+
+    ('Wells_SDK/sdk_core.py', 'Wells_SDK'),
+    ('build_runtime/renpy-7.4.11-sdk', 'renpy-7.4.11-sdk'),
+]
+
 a = Analysis(
     ['main.py'],
     pathex=['.', 'Wells_Extractor', 'Wells_Extractor/unrpyc', 'Wells_Revisor', 'Wells_Translator', 'Wells_SDK'],
     binaries=[],
-    datas=[
-        ('wells.ico', '.'),
-        ('Wells_Extractor', 'Wells_Extractor'),
-        ('Wells_Translator', 'Wells_Translator'),
-        ('Wells_Revisor', 'Wells_Revisor'),
-        ('Wells_SDK', 'Wells_SDK'),
-        ('build_runtime/renpy-7.4.11-sdk', 'renpy-7.4.11-sdk'),
-    ],
+    datas=runtime_datas,
     hiddenimports=hiddenimports,
     hookspath=[], hooksconfig={}, runtime_hooks=[], excludes=[], noarchive=False, optimize=0,
 )
