@@ -1,10 +1,8 @@
 # -*- coding: utf-8 -*-
 """Physical Wells launcher entry point.
 
-This entry point keeps the exact directory returned by the folder picker.
-In particular, selecting a project's ``game`` directory no longer silently
-replaces the selection with its parent.  The Ren'Py bridge already knows how
-to resolve ``game`` to the project root when a Ren'Py command needs it.
+Keeps exactly the folder chosen by the user and points the command bridge to
+the physical Wells_Runtime directory shipped beside the launcher.
 """
 from __future__ import annotations
 
@@ -12,9 +10,12 @@ from pathlib import Path
 
 import Wells_Launcher as base
 
+# Wells_Launcher keeps compatibility with older packages.  The physical build
+# overrides that legacy path with the neutral Wells runtime directory name.
+base.os.environ['WELLS_RENPY_SDK'] = str(base.APP_DIR / 'Wells_Runtime')
+
 
 def validate_selected_project(directory):
-    """Return the exact selected directory if it identifies a Ren'Py project."""
     selected = Path(directory).expanduser().resolve()
     if selected.name.lower() == 'game' and selected.is_dir():
         return selected
@@ -33,9 +34,6 @@ def select_project_exact(self):
         base.messagebox.showerror(base.APP, str(exc))
         return False
 
-    # Keep exactly what the native picker returned.  Do not rewrite 'game' to
-    # its parent here. sdk_core._project_root() performs that conversion only
-    # internally, at the moment a Ren'Py command actually requires the root.
     self.project = selected
     self.project_text.set("Projeto Ren'Py: " + selected.name)
     self._log('Pasta selecionada: ' + str(selected))
@@ -46,4 +44,7 @@ base.WellsManager.select_project = select_project_exact
 
 
 if __name__ == '__main__':
-    base.WellsManager().mainloop()
+    app = base.WellsManager()
+    # Correct the legacy informational line without changing the approved UI.
+    app._log('Wells Runtime físico: ' + str(base.APP_DIR / 'Wells_Runtime' / 'renpy.exe'))
+    app.mainloop()
