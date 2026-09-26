@@ -1,10 +1,8 @@
 # -*- mode: python ; coding: utf-8 -*-
 from PyInstaller.utils.hooks import collect_submodules
 
-# Wells Manager: build único/portátil.
-# Nesta fase o SDK 7.4.11 completo é incluído deliberadamente para validar as
-# funções oficiais do Ren'Py. Depois da validação, o conjunto poderá ser
-# reduzido com segurança sem adivinhar dependências.
+# O SDK fonte permanece intacto no repositório. O build usa somente a cópia
+# reduzida preparada por Wells_SDK/prepare_runtime.py.
 hiddenimports = [
     'extractor_core', 'wells_translator_core', 'wells_revisor_core',
     'wells_base_linguistica', 'wells_guia_ptbr', 'wells_isolador_renpy',
@@ -29,7 +27,7 @@ a = Analysis(
         ('Wells_Translator', 'Wells_Translator'),
         ('Wells_Revisor', 'Wells_Revisor'),
         ('Wells_SDK', 'Wells_SDK'),
-        ('../renpy-7.4.11-sdk', 'renpy-7.4.11-sdk'),
+        ('build_runtime/renpy-7.4.11-sdk', 'renpy-7.4.11-sdk'),
     ],
     hiddenimports=hiddenimports,
     hookspath=[], hooksconfig={}, runtime_hooks=[], excludes=[], noarchive=False, optimize=0,
