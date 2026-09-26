@@ -85,7 +85,10 @@ jobs:
             'Wells_SDK[\\/]sdk_core\.py',
             'renpy-7\.4\.11-sdk[\\/]renpy\.exe'
           )) {
-            if ($listing -notmatch $required) { throw "Recurso obrigatório ausente do EXE: $required" }
+            # YAML/PowerShell leaves backslashes literal in these strings. The
+            # regex itself therefore needs one escaping backslash before '.'.
+            $pattern = $required -replace '\\\\([.]?)', '\$1'
+            if ($listing -notmatch $pattern) { throw "Recurso obrigatório ausente do EXE: $pattern" }
           }
           $dictionaryCopies = [regex]::Matches($listing, 'Palavras_PT-BR\.txt').Count
           if ($dictionaryCopies -ne 1) { throw "Esperada 1 cópia do dicionário PT-BR; encontradas: $dictionaryCopies" }
