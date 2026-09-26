@@ -75,22 +75,23 @@ jobs:
         shell: pwsh
         run: |
           $listing = (pyi-archive_viewer -l 'dist/Wells_Manager.exe' | Out-String)
-          $normalized = $listing.Replace('\', '/')
+          # pyi-archive-viewer may render Windows separators escaped. File names
+          # are unique here, so literal leaf-name checks avoid format ambiguity.
           foreach ($required in @(
-            'Wells_Extractor/extractor_core.py',
-            'Wells_Extractor/unrpyc/unrpyc.py',
-            'Wells_Translator/wells_translator_core.py',
-            'Wells_Revisor/wells_revisor_core.py',
-            'Wells_Revisor/Palavras_PT-BR.txt',
-            'Wells_Revisor/dados_linguisticos/fserb_icf.csv',
-            'Wells_SDK/sdk_core.py',
-            'renpy-7.4.11-sdk/renpy.exe'
+            'extractor_core.py',
+            'unrpyc.py',
+            'wells_translator_core.py',
+            'wells_revisor_core.py',
+            'Palavras_PT-BR.txt',
+            'fserb_icf.csv',
+            'sdk_core.py',
+            'renpy.exe'
           )) {
-            if (-not $normalized.Contains($required)) { throw "Recurso obrigatório ausente do EXE: $required" }
+            if (-not $listing.Contains($required)) { throw "Recurso obrigatório ausente do EXE: $required" }
           }
-          $dictionaryCopies = [regex]::Matches($normalized, [regex]::Escape('Palavras_PT-BR.txt')).Count
+          $dictionaryCopies = [regex]::Matches($listing, [regex]::Escape('Palavras_PT-BR.txt')).Count
           if ($dictionaryCopies -ne 1) { throw "Esperada 1 cópia do dicionário PT-BR; encontradas: $dictionaryCopies" }
-          if ($normalized.Contains('Wells_SDK/prepare_runtime.py') -or $normalized.Contains('Wells_SDK/validate_tutorial.py')) {
+          if ($listing.Contains('prepare_runtime.py') -or $listing.Contains('validate_tutorial.py')) {
             throw 'Scripts exclusivos do laboratório entraram no executável.'
           }
           Write-Host 'Recursos físicos do Wells validados; dicionário PT-BR presente uma única vez.'
