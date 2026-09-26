@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """Ren'Py 7.4.11 command bridge used by Wells Manager."""
 from __future__ import annotations
-import os, subprocess, sys
+import json, os, subprocess, sys
 from pathlib import Path
 
 class SDKError(RuntimeError): pass
@@ -42,8 +42,23 @@ def _language(language,message='Informe o idioma da tradução.'):
     return language
 
 
+def _translation_dir(project,language):
+    return _project_root(project)/'game'/'tl'/language
+
+
 def _strings_json(project,language):
-    return _project_root(project)/('wells_strings_'+language+'.json')
+    return _translation_dir(project,language)/('wells_strings_'+language+'.json')
+
+
+def _format_strings_json(path):
+    """Rewrite Ren'Py's compact JSON as a readable, translator-friendly document."""
+    path=Path(path)
+    try:
+        with path.open('r',encoding='utf-8') as f:
+            data=json.load(f)
+        path.write_text(json.dumps(data,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
+    except Exception as exc:
+        raise SDKError('As strings foram extraídas, mas o JSON não pôde ser organizado: {}'.format(exc))
 
 
 def _runner(sdk):
@@ -83,7 +98,10 @@ def generate_translations(project,language,empty=True,log=None):
 def extract_string_translations(project,language,log=None,destination=None):
     language=_language(language)
     destination=Path(destination).expanduser().resolve() if destination else _strings_json(project,language)
+    destination.parent.mkdir(parents=True,exist_ok=True)
     result=run(project,['extract_strings',language,str(destination)],log)
+    _format_strings_json(destination)
+    if log: log('Strings organizadas em: '+str(destination))
     result['file']=str(destination)
     return result
 
