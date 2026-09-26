@@ -3,8 +3,8 @@
 
 Wells does not ship or execute its own Ren'Py SDK. The user selects the game's
 Windows executable and this module discovers the Python/Ren'Py runtime already
-shipped with that game. The command line intentionally mirrors distributed-game
-translation tools: bundled python.exe, -O, the game's own bootstrap .py, basedir,
+shipped with that game. The command line mirrors Ren'Py 7.4.11 Launcher's own
+project invocation: bundled python.exe, -EO, the game's bootstrap .py, basedir,
 and the requested Ren'Py command.
 """
 from __future__ import annotations
@@ -234,15 +234,15 @@ def _translation_scope(project, keep_language=None, log=None):
 def _command(runtime, project, args):
     """Build the distributed-game Ren'Py command line.
 
-    The -O flag is intentional and important. Ren'Py game distributions and the
-    reference renpy-translator execute the bundled interpreter in optimized mode:
-        python.exe -O Game.py <basedir> <command> ...
-    The previous Wells game-runtime bridge omitted -O, so it was not reproducing
-    the same startup mode as the game-oriented translation path we were modelling.
+    Ren'Py 7.4.11's own Launcher starts projects as:
+        python[w].exe -EO renpy.py <basedir> <command> ...
+    A distributed game replaces renpy.py with its same-root game bootstrap. -E
+    prevents inherited PYTHON* environment variables from contaminating the
+    bundled interpreter, while -O matches Ren'Py's optimized distribution mode.
     """
     return [
         str(runtime['python']),
-        '-O',
+        '-EO',
         str(runtime['launcher']),
         str(project),
     ] + [str(x) for x in args]
@@ -255,7 +255,7 @@ def run(project, args, log=None):
     cmd = _command(runtime, project, args)
     if log:
         log("Ren'Py do jogo: " + ' '.join(args))
-        log("Runtime: lib/{} ({}, {}, modo -O)".format(runtime['layout'], runtime['generation'], runtime['architecture']))
+        log("Runtime: lib/{} ({}, {}, modo -EO)".format(runtime['layout'], runtime['generation'], runtime['architecture']))
 
     startup = None
     creationflags = 0
