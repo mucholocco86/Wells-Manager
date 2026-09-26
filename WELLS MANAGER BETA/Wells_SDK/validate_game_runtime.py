@@ -39,7 +39,16 @@ def main() -> int:
             assert info['architecture'] == architecture
             assert sdk_core._project_root(exe) == root.resolve()
             assert sdk_core.runtime_for(root)['game_exe'] == exe.resolve()
-    print('Wells game-runtime detection OK: py3/py2, x64/x86 layouts validated.')
+
+            # Keep this exact: it is the game-distribution invocation used by
+            # renpy-translator and by real Ren'Py game bootstraps.
+            command = sdk_core._command(info, root.resolve(), ['translate', 'brazil_teste', '--empty'])
+            assert command[0] == str(info['python'])
+            assert command[1] == '-O'
+            assert command[2] == str(info['launcher'])
+            assert command[3] == str(root.resolve())
+            assert command[4:] == ['translate', 'brazil_teste', '--empty']
+    print('Wells game-runtime detection OK: py3/py2, x64/x86 and optimized -O command validated.')
     return 0
 
 
