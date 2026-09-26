@@ -90,28 +90,20 @@ def run(project,args,log=None):
 
 
 def _run_translation_isolated(project, language, args, log=None):
-    """Run translation generation without parsing unrelated existing TL folders.
-
-    Older Wells builds called Ren'Py directly with game/tl visible.  A translation
-    produced by another Ren'Py generation can then abort an otherwise unrelated
-    new language before generation starts (for example: ``new ...`` ->
-    ``no string to translate``).  Wells now keeps the selected target language
-    visible, temporarily moves every other translation tree out of ``game``,
-    runs Ren'Py, and restores the tree byte-for-byte afterwards.
-    """
+    """Generate one language without letting unrelated game/tl folders abort it."""
     root=_project_root(project)
-    game=root/'game'
-    tl=game/'tl'
+    tl=root/'game'/'tl'
     if not tl.is_dir():
         return run(root,args,log)
 
     hold=root/('.wells_tl_hold_'+uuid.uuid4().hex)
-    target_hold=None
     target_live=tl/language
+    isolated=False
     if log: log('Wells: isolando traduções existentes durante a geração...')
 
     try:
         tl.rename(hold)
+        isolated=True
         tl.mkdir(parents=True,exist_ok=True)
         target_hold=hold/language
         if target_hold.exists():
@@ -119,7 +111,6 @@ def _run_translation_isolated(project, language, args, log=None):
 
         result=run(root,args,log)
 
-        # Preserve the target generated/updated by Ren'Py inside the original TL.
         if target_live.exists():
             destination=hold/language
             if destination.exists():
@@ -128,21 +119,21 @@ def _run_translation_isolated(project, language, args, log=None):
             shutil.move(str(target_live),str(destination))
         return result
     finally:
-        # On success or failure, put the user's original TL tree back in place.
-        try:
-            if target_live.exists():
-                destination=hold/language
-                if destination.exists():
-                    if destination.is_dir(): shutil.rmtree(str(destination))
-                    else: destination.unlink()
-                shutil.move(str(target_live),str(destination))
-            if tl.exists():
-                shutil.rmtree(str(tl))
-            if hold.exists():
-                hold.rename(tl)
-            if log: log('Wells: traduções existentes restauradas.')
-        except Exception as restore_exc:
-            raise SDKError('A operação terminou, mas Wells não conseguiu restaurar game/tl automaticamente: {}'.format(restore_exc))
+        if isolated:
+            try:
+                if target_live.exists():
+                    destination=hold/language
+                    if destination.exists():
+                        if destination.is_dir(): shutil.rmtree(str(destination))
+                        else: destination.unlink()
+                    shutil.move(str(target_live),str(destination))
+                if tl.exists():
+                    shutil.rmtree(str(tl))
+                if hold.exists():
+                    hold.rename(tl)
+                if log: log('Wells: traduções existentes restauradas.')
+            except Exception as restore_exc:
+                raise SDKError('Wells não conseguiu restaurar game/tl automaticamente. Cópia de segurança: {}. Erro: {}'.format(hold,restore_exc))
 
 
 def generate_translations(project,language,empty=True,log=None):
