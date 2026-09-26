@@ -3,9 +3,9 @@
 
 Wells does not ship or execute its own Ren'Py SDK. The user selects the game's
 Windows executable and this module discovers the Python/Ren'Py runtime already
-shipped with that game. This follows the same general architecture proven by
-Ren'Py translation tools that work against distributed games, while keeping
-Wells' implementation independent.
+shipped with that game. The command line intentionally mirrors distributed-game
+translation tools: bundled python.exe, -O, the game's own bootstrap .py, basedir,
+and the requested Ren'Py command.
 """
 from __future__ import annotations
 
@@ -23,8 +23,6 @@ class SDKError(RuntimeError):
     pass
 
 
-# Ren'Py has used several Windows runtime layouts over the years. Prefer the
-# modern py3 layout, then the generic/py2 layouts used by older distributions.
 _WINDOWS_PYTHON = (
     'py3-windows-x86_64/python.exe',
     'windows-x86_64/python.exe',
@@ -52,8 +50,6 @@ def _find_launcher(root, game_exe):
         if candidate.stem.casefold() == wanted:
             return candidate
 
-    # Some distributions rename the Windows executable while leaving a single
-    # Ren'Py bootstrap script in the root. Only accept an unambiguous fallback.
     candidates = []
     for candidate in root.glob('*.py'):
         if candidate.name.lower() in ('setup.py',):
@@ -72,8 +68,6 @@ def _find_python(root):
         if candidate.is_file():
             return candidate, rel.replace('\\', '/')
 
-    # Compatibility fallback for layouts not yet named above. Keep it narrow:
-    # only Python executables directly inside a *windows* runtime directory.
     if lib.is_dir():
         found = []
         for candidate in lib.glob('*windows*/python.exe'):
@@ -136,8 +130,6 @@ def _autodetect_runtime(root):
     if cached:
         return cached
 
-    # Prefer executables that have a same-name .py bootstrap. This avoids
-    # accidentally selecting uninstallers or helper executables.
     candidates = []
     for exe in sorted(root.glob('*.exe')):
         if (root / (exe.stem + '.py')).is_file():
@@ -186,11 +178,10 @@ def _format_strings_json(path):
 def _translation_scope(project, keep_language=None, log=None):
     """Hide unrelated game/tl entries while a translation command boots Ren'Py.
 
-    Ren'Py's generator itself skips tl/* as source material, but the engine parses
-    translation scripts during startup. A broken or third-party translation can
-    therefore abort generation of an entirely different language. Wells keeps the
-    requested language (when one exists), temporarily moves every unrelated tl
-    entry outside game/, runs the command, and restores the game byte-for-byte.
+    The generator does not use tl/* as source material, but old game runtimes can
+    still parse translation scripts during command startup. Wells therefore keeps
+    the requested language visible and temporarily isolates unrelated siblings.
+    Everything is restored byte-for-byte after the command.
     """
     project = _project_root(project)
     tl_dir = project / 'game' / 'tl'
@@ -208,7 +199,6 @@ def _translation_scope(project, keep_language=None, log=None):
     stash = stash_root / 'tl'
     stash.mkdir()
     moved = []
-    restored = False
 
     try:
         for child in children:
@@ -230,8 +220,7 @@ def _translation_scope(project, keep_language=None, log=None):
                 conflicts.append(str(original))
                 continue
             shutil.move(str(held), str(original))
-        restored = not conflicts
-        if restored:
+        if not conflicts:
             shutil.rmtree(stash_root, ignore_errors=True)
             if log:
                 log("Wells: traduções existentes restauradas sem alterações.")
@@ -243,10 +232,17 @@ def _translation_scope(project, keep_language=None, log=None):
 
 
 def _command(runtime, project, args):
-    # A distributed Ren'Py game contains the same bootstrap arrangement used by
-    # the SDK: bundled Python + the game's bootstrap .py + basedir + command.
+    """Build the distributed-game Ren'Py command line.
+
+    The -O flag is intentional and important. Ren'Py game distributions and the
+    reference renpy-translator execute the bundled interpreter in optimized mode:
+        python.exe -O Game.py <basedir> <command> ...
+    The previous Wells game-runtime bridge omitted -O, so it was not reproducing
+    the same startup mode as the game-oriented translation path we were modelling.
+    """
     return [
         str(runtime['python']),
+        '-O',
         str(runtime['launcher']),
         str(project),
     ] + [str(x) for x in args]
@@ -259,7 +255,7 @@ def run(project, args, log=None):
     cmd = _command(runtime, project, args)
     if log:
         log("Ren'Py do jogo: " + ' '.join(args))
-        log("Runtime: lib/{} ({}, {})".format(runtime['layout'], runtime['generation'], runtime['architecture']))
+        log("Runtime: lib/{} ({}, {}, modo -O)".format(runtime['layout'], runtime['generation'], runtime['architecture']))
 
     startup = None
     creationflags = 0
@@ -268,8 +264,6 @@ def run(project, args, log=None):
         startup.dwFlags |= subprocess.STARTF_USESHOWWINDOW
         creationflags = getattr(subprocess, 'CREATE_NO_WINDOW', 0)
 
-    # Keep only a small diagnostic tail in memory. Long Ren'Py reports are
-    # streamed to the Wells log instead of being duplicated indefinitely.
     tail = deque(maxlen=40)
     proc = subprocess.Popen(
         cmd,
