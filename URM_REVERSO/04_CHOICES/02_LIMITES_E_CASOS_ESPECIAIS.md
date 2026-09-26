@@ -1,0 +1,517 @@
+# Choices — limites, casos especiais e detalhes que não podem ser perdidos
+
+## Objetivo
+
+Este documento registra detalhes do comportamento real do sistema de Choices do URM que são fáceis de perder quando se resume a arquitetura em poucas linhas.
+
+A intenção é preservar tanto as capacidades quanto as limitações do URM. Uma futura implementação do Wells não deve transformar uma heurística do URM em uma garantia universal sem antes validar a mesma operação diretamente no Ren'Py.
+
+---
+
+## 1. Choices visíveis e Choices ocultas são mantidas no mesmo conjunto
+
+`ChoicesClass.currentChoices` não elimina uma alternativa simplesmente porque sua condição atual é falsa.
+
+Ele percorre `script.items` e cria `URMChoice` para itens que possuem conteúdo de Choice (`len(item) >= 3 and item[2]`).
+
+A visibilidade é calculada separadamente por:
+
+```python
+eval(self.condition, renpy.store.__dict__)
+```
+
+Portanto o modelo é:
+
+```text
+Menu
+├── Choice A → condição True
+├── Choice B → condição False
+└── Choice C → condição True
+```
+
+O URM mantém A, B e C na representação e informa que B está oculta.
+
+Isso explica a funcionalidade registrada no changelog antigo do URM: o usuário consegue **ver e selecionar Choices ocultas**.
+
+### Consequência arquitetural
+
+A lista apresentada pelo URM não deve ser confundida com a lista de opções que o jogo necessariamente ofereceria ao jogador em sua interface normal.
+
+Ela é uma inspeção mais profunda da estrutura do Menu.
+
+---
+
+## 2. A ação Select não faz uma segunda checagem de visibilidade
+
+A tela de Choices chama diretamente:
+
+```python
+choice.Action
+```
+
+E `Action` faz:
+
+```python
+renpy.game.log.rollback_is_fixed = False
+return renpy.ui.ChoiceReturn(self._m1_choices__choice[0], self._m1_choices__index)()
+```
+
+Não existe dentro de `Action` uma condição equivalente a:
+
+```python
+if not choice.isVisible:
+    refuse
+```
+
+Isso é coerente com a funcionalidade histórica de permitir selecionar Choices ocultas.
+
+### Importância
+
+Isso significa que o URM está deliberadamente oferecendo uma capacidade de intervenção que a interface normal do jogo não oferece.
+
+Para o Wells, isso precisa ser tratado como uma **ação especial de inspeção/intervenção**, e não como se fosse simplesmente uma reprodução visual dos botões normais do Menu.
+
+---
+
+## 3. O texto exibido e o texto usado na seleção não são necessariamente a mesma representação
+
+A propriedade `URMChoice.text` faz:
+
+```python
+renpy.exports.substitute(self._m1_choices__choice[0])
+```
+
+Portanto a interface pode mostrar uma versão substituída/dinâmica do texto.
+
+Por outro lado, `Action` passa para `ChoiceReturn` o valor original:
+
+```python
+self._m1_choices__choice[0]
+```
+
+e não a propriedade `self.text`.
+
+Isso é importante.
+
+O URM não está dizendo ao Ren'Py:
+
+> "execute a escolha com o texto que eu renderizei na tela."
+
+Ele preserva o valor da Choice que veio da estrutura interna e usa esse valor na ação de retorno.
+
+A cadeia é:
+
+```text
+AST / item original
+      ├──────────────→ text → substitute → interface
+      │
+      └──────────────→ ChoiceReturn → Ren'Py
+```
+
+Essa separação é um forte indício de que a apresentação não substitui a estrutura real usada pelo motor.
+
+---
+
+## 4. Text Replacement do URM não equivale a alterar a Choice real
+
+A tela de Choices oferece integração com `TextRepl`.
+
+Quando uma substituição existe para o texto da Choice, a interface mostra um botão para abrir/editar a substituição.
+
+Isso não significa que o URM esteja alterando a AST do Menu ou o texto estrutural usado pelo Ren'Py naquele instante.
+
+É outra camada:
+
+```text
+Choice real
+    ↓
+URMChoice.text
+    ↓
+TextRepl / apresentação
+```
+
+A seleção continua utilizando o item interno armazenado em `URMChoice`.
+
+Portanto, para o Wells, devemos manter separadas:
+
+1. fonte/estrutura da Choice;
+2. transformação visual/apresentação;
+3. ação real de seleção.
+
+---
+
+## 5. `jumpTo` é uma heurística, não uma análise completa do fluxo
+
+`URMChoice.jumpTo` faz algo deliberadamente simples:
+
+```python
+for content in self._m1_choices__choice[2]:
+    if isinstance(content, renpy.ast.Jump):
+        self._m1_choices__jumpTo = content.target
+        break
+```
+
+Ou seja, ele procura o **primeiro `renpy.ast.Jump` diretamente presente na lista de nós da Choice**.
+
+Isso não equivale a:
+
+> "Este é necessariamente o próximo label que o jogo atingirá em todos os cenários."
+
+Uma Choice pode possuir uma estrutura mais complexa:
+
+```text
+Choice
+ ↓
+If
+ ├── Call
+ ├── Jump
+ └── Python
+      ↓
+      Jump
+```
+
+ou:
+
+```text
+Choice
+ ↓
+Call
+ ↓
+Label
+ ↓
+If
+ ↓
+Jump
+```
+
+Nesses casos, o `jumpTo` simples do URM pode não representar todo o fluxo.
+
+### Conclusão
+
+A coluna **Next label** da interface deve ser documentada como:
+
+> destino de um `Jump` encontrado diretamente no conteúdo da alternativa, quando existente.
+
+Não devemos tratá-la como um grafo completo de execução.
+
+---
+
+## 6. CodeView é poderoso, mas é explicitamente uma reconstrução
+
+A própria interface do URM avisa:
+
+> "The code shown here is generated by URM, it's probably not the exact same as what was written by the developer."
+
+Isso é extremamente importante para a documentação do Wells.
+
+Existem dois níveis diferentes de fidelidade:
+
+### Nível A — fonte associada ao nó Python
+
+Para `renpy.ast.Python`, `CodeView.nodesToCode()` utiliza `node.code.source`.
+
+Aqui temos uma relação muito forte com o código Python original associado àquele nó.
+
+### Nível B — reconstrução de outros tipos de AST
+
+Para `If`, `Jump`, `Call`, `UserStatement`, `Translate` e outros nós, o URM constrói texto de apresentação.
+
+Esse texto pode ser uma representação correta da operação sem ser uma cópia literal do `.rpy` original.
+
+Portanto:
+
+```text
+AST real
+   ↓
+CodeView
+   ↓
+representação legível
+```
+
+não deve ser confundido com:
+
+```text
+arquivo .rpy original
+```
+
+Essa distinção será essencial se o Wells algum dia prometer "código exato".
+
+---
+
+## 7. `isVisible` é uma avaliação independente da condição
+
+O URM calcula:
+
+```python
+eval(self.condition, renpy.store.__dict__)
+```
+
+Isso significa que ele executa uma avaliação Python da condição no estado atual do store.
+
+Em condições puramente declarativas, como:
+
+```python
+flag == True
+```
+
+isso é uma leitura natural do estado.
+
+Mas uma condição pode envolver chamadas ou expressões com comportamento próprio. Nesse caso, avaliar uma expressão novamente pode não ser semanticamente idêntico a simplesmente observar o resultado que o mecanismo normal do Ren'Py utilizaria naquele instante.
+
+Portanto o Wells deve evitar a conclusão:
+
+> "Toda condição pode ser reavaliada arbitrariamente sem risco."
+
+A implementação futura precisa investigar como o Ren'Py representa e avalia condições de Menu na versão-alvo.
+
+---
+
+## 8. O URM pode inspecionar a Choice sem executar seu conteúdo
+
+Este é um dos aspectos mais fortes do desenho.
+
+Antes da seleção, o URM pode acessar:
+
+```text
+texto
+condição
+visibilidade
+AST dos nós da alternativa
+Jump direto
+```
+
+sem executar:
+
+```text
+Python da alternativa
+If interno
+Call
+Jump
+```
+
+Isso permite a inspeção preventiva.
+
+O modelo é:
+
+```text
+                MENU REAL
+                    │
+          ┌─────────┴─────────┐
+          │                   │
+       INSPEÇÃO            EXECUÇÃO
+          │                   │
+          ▼                   ▼
+        URM                 Ren'Py
+```
+
+O URM lê a estrutura; o Ren'Py executa quando a escolha é realmente tomada.
+
+---
+
+## 9. Path Detection não deve ser confundido com Choice
+
+A análise já mostrou que `PathDetection` possui outro mecanismo.
+
+Choice:
+
+```text
+renpy.ast.Menu
+   ↓
+Choices.currentChoices
+```
+
+Path Detection:
+
+```text
+nó atual
+   ↓
+look-ahead
+   ↓
+If futuro
+   ↓
+Paths
+```
+
+O `PathDetection.Action` inclusive verifica se uma Choice está sendo exibida antes de forçar um caminho.
+
+Portanto não devemos fundir os dois sistemas no Wells.
+
+Eles respondem perguntas diferentes:
+
+- **Choice:** "quais alternativas pertencem ao Menu que está acontecendo agora?"
+- **Path Detection:** "quais caminhos condicionais o URM consegue detectar adiante no fluxo?"
+
+---
+
+## 10. A notificação `Choices detected` é um detector de estado do fluxo, não uma análise do conteúdo
+
+O banner:
+
+```text
+Choices detected
+```
+
+é controlado principalmente por:
+
+```python
+x52URM.Choices.isDisplayingChoice
+```
+
+A contagem de ocultas é obtida separadamente por:
+
+```python
+x52URM.Choices.hiddenCount
+```
+
+Portanto existem dois conceitos:
+
+```text
+Existe Menu agora?
+        ↓
+Choices.isDisplayingChoice
+
+Quantas alternativas estão invisíveis?
+        ↓
+hiddenCount
+```
+
+O banner não precisa conhecer o código interno das Choices para aparecer.
+
+---
+
+## 11. O changelog revela uma longa maturação específica do sistema de Choices
+
+O changelog embutido no próprio URM registra uma evolução importante:
+
+- URM 0.8: visualização/modificação de Choices, inclusive ocultas, condições e código;
+- URM 1.2: notificação de Choices detectadas;
+- URM 1.3: correções de crashes ao procurar Choices e inicialização após load;
+- URM 1.7: prevenção de diálogo ser confundido com Choice e prevenção de click-through;
+- URM 1.9: correção quando substituição de texto falhava em Choices detectadas;
+- URM 2.1: Choices dialog capaz de bypass de fixed choices/fixed rollback;
+- URM 2.2.1: Skip pode avançar rapidamente até a próxima Choice;
+- URM 2.3: CodeView inteligente para Choices e paths;
+- URM 2.6.1: prevenção de dados estáticos do URM acabarem no save.
+
+Isso é evidência de que o sistema não é uma tela superficial colocada sobre o jogo. Ele foi sendo adaptado ao comportamento real do runtime ao longo de várias versões.
+
+---
+
+## 12. Fixed rollback merece investigação própria
+
+A existência desta linha em `URMChoice.Action`:
+
+```python
+renpy.game.log.rollback_is_fixed = False
+```
+
+junto com a entrada do changelog:
+
+```text
+Choices dialog is now able to bypass fixed choices ("fixed rollback")
+```
+
+mostra uma relação direta entre a ação de selecionar uma Choice pelo URM e o mecanismo de **fixed rollback** do Ren'Py.
+
+Ainda não devemos declarar a implementação exata sem fechar o circuito no SDK 7.4.11, mas agora temos uma evidência muito mais forte de que esse comando não é acidental.
+
+A próxima investigação deve responder:
+
+```text
+O que torna um rollback "fixed"?
+          ↓
+O que ChoiceReturn faz nesse estado?
+          ↓
+O que rollback_is_fixed controla?
+          ↓
+Por que o URM o redefine antes da escolha?
+          ↓
+Como isso permite escolher uma alternativa novamente?
+```
+
+---
+
+## 13. Skip e Choices
+
+O changelog do URM registra que, desde 2.2.1, o Skip pode avançar rapidamente até a próxima Choice.
+
+Isso mostra outra integração interessante:
+
+```text
+Skip
+  ↓
+Ren'Py continua avançando
+  ↓
+URM observa Choice
+  ↓
+Skip é interrompido/posicionado conforme configuração
+```
+
+Esse comportamento não deve ser implementado no Wells antes de entender exatamente como o URM detecta a próxima Choice e como conversa com o mecanismo de skip do Ren'Py.
+
+É mais uma evidência de que o sistema de Choices está conectado ao pipeline de interação, e não isolado em uma tela.
+
+---
+
+## 14. Preservação para o Wells
+
+Até aqui, as regras de arquitetura que considero seguras são:
+
+### Regra 1
+Não parsear o texto do jogo para tentar descobrir Choices se o Ren'Py já fornece a estrutura AST necessária.
+
+### Regra 2
+Não executar manualmente o código da alternativa.
+
+### Regra 3
+Não criar um estado paralelo que tente substituir o Store do Ren'Py.
+
+### Regra 4
+Não transformar `jumpTo` em promessa de previsão completa de fluxo.
+
+### Regra 5
+Não tratar o texto reconstruído pelo CodeView como cópia garantida do `.rpy` original.
+
+### Regra 6
+Manter separadas:
+
+```text
+estrutura da Choice
+estado real
+execução
+rollback
+apresentação
+```
+
+### Regra 7
+Qualquer bypass de Choice oculta/fixed rollback deve ser considerado comportamento avançado e só ser implementado depois de validar o mecanismo exato no SDK.
+
+---
+
+## 15. Estado atual da investigação
+
+### Confirmado no código do URM
+
+- Choice é detectada via `renpy.ast.Menu`;
+- itens são obtidos diretamente de `script.items`;
+- Choices ocultas são preservadas para inspeção;
+- condição é avaliada separadamente pelo URM;
+- código é gerado a partir da AST;
+- Python usa `node.code.source`;
+- `jumpTo` procura o primeiro `Jump` direto;
+- seleção usa `ChoiceReturn`;
+- `rollback_is_fixed` é explicitamente liberado antes da seleção;
+- StoreMonitor observa mudanças de estado por caminhos específicos;
+- notificação de Choice é separada de notificação de variável;
+- changelog confirma evolução específica para fixed rollback, skip e compatibilidade.
+
+### Ainda não fechado
+
+- implementação exata de `ChoiceReturn` na versão-alvo;
+- semântica exata de `rollback_is_fixed` em Ren'Py 7.4.11;
+- sequência precisa de `force_checkpoint` → `RollbackLog.complete()`;
+- ordem exata entre interação, checkpoint, execução da Choice e registro no rollback;
+- comportamento de Choices complexas com chamadas/condições aninhadas;
+- diferenças entre versões Ren'Py suportadas pelo URM.
+
+**Conclusão:** o sistema já está suficientemente compreendido para revelar sua arquitetura, mas ainda não está suficientemente fechado para justificar uma implementação definitiva no Wells. A investigação continua.
