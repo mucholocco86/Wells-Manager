@@ -2,6 +2,7 @@
 from PyInstaller.utils.hooks import collect_submodules
 
 hiddenimports = [
+    'Wells_Launcher',
     'extractor_core', 'wells_revisor_core', 'wells_base_linguistica',
     'wells_guia_ptbr', 'wells_isolador_renpy', 'sdk_core',
     'dialogue_roundtrip', 'dialogue_manager',
@@ -38,7 +39,7 @@ datas = [
 ]
 
 a = Analysis(
-    ['Wells_Launcher.py'],
+    ['Wells_Launcher_Fixed.py'],
     pathex=['.', 'Wells_Extractor', 'Wells_Extractor/unrpyc', 'Wells_Revisor', 'Wells_SDK'],
     binaries=[], datas=datas, hiddenimports=hiddenimports,
     hookspath=[], hooksconfig={}, runtime_hooks=[], excludes=[],
