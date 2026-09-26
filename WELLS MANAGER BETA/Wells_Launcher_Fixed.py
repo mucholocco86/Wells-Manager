@@ -10,9 +10,16 @@ from pathlib import Path
 
 import Wells_Launcher as base
 
-# Wells_Launcher keeps compatibility with older packages.  The physical build
-# overrides that legacy path with the neutral Wells runtime directory name.
 base.os.environ['WELLS_RENPY_SDK'] = str(base.APP_DIR / 'Wells_Runtime')
+
+# The base launcher still contains one compatibility-only informational line
+# naming the old package directory. Suppress only that line in this build.
+_original_log = base.WellsManager._log
+def _physical_log(self, text):
+    if str(text).startswith("Runtime Ren'Py: "):
+        return
+    return _original_log(self, text)
+base.WellsManager._log = _physical_log
 
 
 def validate_selected_project(directory):
@@ -33,7 +40,6 @@ def select_project_exact(self):
     except ValueError as exc:
         base.messagebox.showerror(base.APP, str(exc))
         return False
-
     self.project = selected
     self.project_text.set("Projeto Ren'Py: " + selected.name)
     self._log('Pasta selecionada: ' + str(selected))
@@ -45,6 +51,5 @@ base.WellsManager.select_project = select_project_exact
 
 if __name__ == '__main__':
     app = base.WellsManager()
-    # Correct the legacy informational line without changing the approved UI.
     app._log('Wells Runtime físico: ' + str(base.APP_DIR / 'Wells_Runtime' / 'renpy.exe'))
     app.mainloop()
