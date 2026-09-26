@@ -28,22 +28,28 @@ jobs:
         run: |
           python -m py_compile main.py
           python -m py_compile Wells_SDK/sdk_core.py
+          python -m py_compile Wells_SDK/prepare_runtime.py
 
-      - name: Smoke test bundled RenPy SDK
+      - name: Prepare reduced RenPy runtime
+        run: python Wells_SDK/prepare_runtime.py
+
+      - name: Validate reduced runtime
         shell: pwsh
         run: |
-          $sdk = Resolve-Path '../renpy-7.4.11-sdk'
-          if (-not (Test-Path "$sdk/renpy.exe")) { throw 'renpy.exe não encontrado no SDK.' }
-          if (-not (Test-Path "$sdk/renpy/common")) { throw 'renpy/common não encontrado no SDK.' }
-          if (-not (Test-Path "$sdk/renpy/translation")) { throw 'módulos de tradução não encontrados no SDK.' }
+          $sdk = Resolve-Path 'build_runtime/renpy-7.4.11-sdk'
+          if (Test-Path "$sdk/launcher") { throw 'Launcher ainda presente no runtime reduzido.' }
+          if (Test-Path "$sdk/doc") { throw 'Documentação ainda presente no runtime reduzido.' }
+          if (-not (Test-Path "$sdk/renpy.exe")) { throw 'renpy.exe não encontrado.' }
+          if (-not (Test-Path "$sdk/renpy/common")) { throw 'renpy/common não encontrado.' }
+          if (-not (Test-Path "$sdk/renpy/translation")) { throw 'renpy/translation não encontrado.' }
           $version = (& "$sdk/renpy.exe" --version 2>&1 | Out-String).Trim()
           Write-Host $version
-          if ($version -notmatch "Ren'Py 7\.4\.11") { throw "O núcleo esperado Ren'Py 7.4.11 não respondeu corretamente. Resposta: $version" }
+          if ($version -notmatch "Ren'Py 7\.4\.11") { throw "Runtime reduzido não iniciou corretamente: $version" }
 
       - name: Build Wells Manager
         run: pyinstaller --noconfirm --clean Wells_Manager.spec
 
-      - name: Verify executable and embedded SDK
+      - name: Verify executable
         shell: pwsh
         run: |
           if (-not (Test-Path 'dist/Wells_Manager.exe')) { throw 'Wells_Manager.exe não foi gerado.' }
