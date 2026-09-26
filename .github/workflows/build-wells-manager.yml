@@ -35,39 +35,15 @@ jobs:
           python -m py_compile Wells_Revisor/wells_isolador_renpy.py
           python -m py_compile Wells_SDK/sdk_core.py
           python -m py_compile Wells_SDK/dialogue_roundtrip.py
-          python -m py_compile Wells_SDK/prepare_runtime.py
-          python -m py_compile Wells_SDK/validate_tutorial.py
+          python -m py_compile Wells_SDK/validate_game_runtime.py
 
       - name: Validate reviewer linguistic base
         shell: pwsh
         run: |
           python -c "import sys; from pathlib import Path; sys.path.insert(0,'Wells_Revisor'); from wells_base_linguistica import BaseLinguistica; b=BaseLinguistica(Path('Wells_Revisor')); assert b.palavras and b.lexico and b.conjugacoes and b.icf; print('Reviewer linguistic base OK:', len(b.palavras), len(b.lexico), len(b.conjugacoes), len(b.icf))"
 
-      - name: Prepare reduced RenPy runtime
-        run: python Wells_SDK/prepare_runtime.py
-
-      - name: Validate reduced runtime structure
-        shell: pwsh
-        run: |
-          $sdk = Resolve-Path 'build_runtime/renpy-7.4.11-sdk'
-          if (Test-Path "$sdk/launcher") { throw 'Launcher ainda presente no runtime reduzido.' }
-          if (Test-Path "$sdk/doc") { throw 'Documentação ainda presente no runtime reduzido.' }
-          foreach ($removed in @('linux-i686','linux-x86_64','mac-x86_64','windows-i686')) {
-            if (Test-Path "$sdk/lib/$removed") { throw "Plataforma removida reapareceu: $removed" }
-          }
-          foreach ($required in @('renpy.exe','renpy/common','renpy/translation','lib/python2.7','lib/windows-x86_64')) {
-            if (-not (Test-Path "$sdk/$required")) { throw "Dependência necessária ausente: $required" }
-          }
-          $version = (& "$sdk/renpy.exe" --version 2>&1 | Out-String).Trim()
-          Write-Host $version
-          if ($version -notmatch "Ren'Py 7\.4\.11") { throw "Runtime reduzido não iniciou corretamente: $version" }
-
-      - name: Functional test through Wells SDK bridge
-        shell: pwsh
-        run: |
-          $sdk = (Resolve-Path 'build_runtime/renpy-7.4.11-sdk').Path
-          $tutorial = (Resolve-Path '../renpy-7.4.11-sdk/tutorial').Path
-          python Wells_SDK/validate_tutorial.py "$sdk" "$tutorial"
+      - name: Validate game-provided RenPy runtime detection
+        run: python Wells_SDK/validate_game_runtime.py
 
       - name: Build Wells Manager Beta
         run: pyinstaller --noconfirm --clean Wells_Manager.spec
@@ -84,17 +60,19 @@ jobs:
             'Palavras_PT-BR.txt',
             'fserb_icf.csv',
             'sdk_core.py',
-            'dialogue_roundtrip.py',
-            'renpy.exe'
+            'dialogue_roundtrip.py'
           )) {
             if (-not $listing.Contains($required)) { throw "Recurso obrigatório ausente do EXE: $required" }
           }
           $dictionaryCopies = [regex]::Matches($listing, [regex]::Escape('Palavras_PT-BR.txt')).Count
           if ($dictionaryCopies -ne 1) { throw "Esperada 1 cópia do dicionário PT-BR; encontradas: $dictionaryCopies" }
-          if ($listing.Contains('prepare_runtime.py') -or $listing.Contains('validate_tutorial.py')) {
+          if ($listing.Contains('renpy.exe') -or $listing.Contains('renpy-7.4.11-sdk')) {
+            throw 'Um runtime/SDK RenPy foi empacotado no Wells Manager, o que não é permitido nesta arquitetura.'
+          }
+          if ($listing.Contains('validate_game_runtime.py') -or $listing.Contains('prepare_runtime.py') -or $listing.Contains('validate_tutorial.py')) {
             throw 'Scripts exclusivos do laboratório entraram no executável.'
           }
-          Write-Host 'Recursos físicos do Wells validados; ponte TAB/JSON presente; dicionário PT-BR único.'
+          Write-Host 'Wells validado sem runtime RenPy embutido; ponte TAB/JSON presente; dicionário PT-BR único.'
 
       - name: Verify executable
         shell: pwsh
