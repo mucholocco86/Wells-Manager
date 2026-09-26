@@ -1,0 +1,119 @@
+name: Build Wells Manager Beta
+
+on:
+  push:
+    branches: [wells-manager-beta]
+  workflow_dispatch:
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: WELLS MANAGER BETA
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install build dependencies
+        run: python -m pip install --upgrade pip pyinstaller python-docx
+
+      - name: Validate Python sources
+        shell: pwsh
+        run: |
+          python -m py_compile main.py
+          python -m py_compile Wells_Extractor/extractor_core.py
+          python -m py_compile Wells_Translator/wells_translator_core.py
+          python -m py_compile Wells_Revisor/wells_revisor_core.py
+          python -m py_compile Wells_Revisor/wells_base_linguistica.py
+          python -m py_compile Wells_Revisor/wells_guia_ptbr.py
+          python -m py_compile Wells_Revisor/wells_isolador_renpy.py
+          python -m py_compile Wells_SDK/sdk_core.py
+          python -m py_compile Wells_SDK/dialogue_roundtrip.py
+          python -m py_compile Wells_SDK/validate_game_runtime.py
+          python -m py_compile Wells_SDK/validate_tutorial_runtime.py
+
+      - name: Validate reviewer linguistic base
+        shell: pwsh
+        run: |
+          python -c "import sys; from pathlib import Path; sys.path.insert(0,'Wells_Revisor'); from wells_base_linguistica import BaseLinguistica; b=BaseLinguistica(Path('Wells_Revisor')); assert b.palavras and b.lexico and b.conjugacoes and b.icf; print('Reviewer linguistic base OK:', len(b.palavras), len(b.lexico), len(b.conjugacoes), len(b.icf))"
+
+      - name: Validate game-provided RenPy runtime detection
+        run: python Wells_SDK/validate_game_runtime.py
+
+      - name: Cache RenPy 7.4.11 SDK for CI laboratory
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/renpy-7.4.11-sdk
+          key: renpy-sdk-7.4.11-windows-v1
+
+      - name: Prepare real RenPy 7.4.11 tutorial laboratory
+        shell: pwsh
+        run: |
+          $sdk = Join-Path $env:RUNNER_TEMP 'renpy-7.4.11-sdk'
+          if (-not (Test-Path (Join-Path $sdk 'tutorial/game'))) {
+            $zip = Join-Path $env:RUNNER_TEMP 'renpy-7.4.11-sdk.zip'
+            Invoke-WebRequest -Uri 'https://www.renpy.org/dl/7.4.11/renpy-7.4.11-sdk.zip' -OutFile $zip
+            $hash = (Get-FileHash -Algorithm SHA256 $zip).Hash.ToLowerInvariant()
+            if ($hash -ne '3e158ac5856e9ff7f1d4462f18e16e053fc9f8a59f94340316435bbf2fce10d9') {
+              throw "SHA256 inesperado para o SDK RenPy 7.4.11: $hash"
+            }
+            Expand-Archive -Path $zip -DestinationPath $env:RUNNER_TEMP -Force
+          }
+          if (-not (Test-Path (Join-Path $sdk 'tutorial/game'))) { throw 'Tutorial real do SDK RenPy 7.4.11 não encontrado.' }
+          Write-Host "Laboratório RenPy real pronto: $sdk"
+
+      - name: Validate translation bridge on real RenPy tutorial
+        shell: pwsh
+        run: |
+          $sdk = Join-Path $env:RUNNER_TEMP 'renpy-7.4.11-sdk'
+          python Wells_SDK/validate_tutorial_runtime.py $sdk
+
+      - name: Build Wells Manager Beta
+        run: pyinstaller --noconfirm --clean Wells_Manager.spec
+
+      - name: Verify packaged Wells resources
+        shell: pwsh
+        run: |
+          $listing = (pyi-archive_viewer -l 'dist/Wells_Manager.exe' | Out-String)
+          foreach ($required in @(
+            'extractor_core.py',
+            'unrpyc.py',
+            'wells_translator_core.py',
+            'wells_revisor_core.py',
+            'Palavras_PT-BR.txt',
+            'fserb_icf.csv',
+            'sdk_core.py',
+            'dialogue_roundtrip.py'
+          )) {
+            if (-not $listing.Contains($required)) { throw "Recurso obrigatório ausente do EXE: $required" }
+          }
+          $dictionaryCopies = [regex]::Matches($listing, [regex]::Escape('Palavras_PT-BR.txt')).Count
+          if ($dictionaryCopies -ne 1) { throw "Esperada 1 cópia do dicionário PT-BR; encontradas: $dictionaryCopies" }
+          if ($listing.Contains('renpy.exe') -or $listing.Contains('renpy-7.4.11-sdk')) {
+            throw 'Um runtime/SDK RenPy foi empacotado no Wells Manager, o que não é permitido nesta arquitetura.'
+          }
+          if ($listing.Contains('validate_game_runtime.py') -or $listing.Contains('prepare_runtime.py') -or $listing.Contains('validate_tutorial.py') -or $listing.Contains('validate_tutorial_runtime.py')) {
+            throw 'Scripts exclusivos do laboratório entraram no executável.'
+          }
+          Write-Host 'Wells validado sem runtime RenPy embutido; ponte TAB/JSON presente; dicionário PT-BR único.'
+
+      - name: Verify executable
+        shell: pwsh
+        run: |
+          if (-not (Test-Path 'dist/Wells_Manager.exe')) { throw 'Wells_Manager.exe não foi gerado.' }
+          $exe = Get-Item 'dist/Wells_Manager.exe'
+          if ($exe.Length -lt 1000000) { throw 'Executável gerado é inesperadamente pequeno.' }
+          $exe | Format-List Name,Length,FullName
+
+      - name: Upload beta build
+        uses: actions/upload-artifact@v4
+        with:
+          name: Wells-Manager-Beta-Windows
+          path: WELLS MANAGER BETA/dist/Wells_Manager.exe
+          if-no-files-found: error

@@ -1,0 +1,1 @@
+pyinstaller --noconsole --onefile --name "Wells Revisor PT-BR" --icon=wells.ico --collect-all docx wells_revisor.py
