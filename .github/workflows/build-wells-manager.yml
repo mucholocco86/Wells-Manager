@@ -27,6 +27,7 @@ jobs:
         shell: pwsh
         run: |
           python -m py_compile Wells_Launcher.py
+          python -m py_compile Wells_Launcher_Fixed.py
           python -m py_compile Wells_Extractor/extractor_core.py
           python -m py_compile Wells_Revisor/wells_revisor_core.py
           python -m py_compile Wells_Revisor/wells_base_linguistica.py
@@ -38,22 +39,23 @@ jobs:
           python -m py_compile Wells_SDK/prepare_runtime.py
           python -m py_compile Wells_SDK/validate_tutorial.py
           python -m py_compile Wells_SDK/validate_manager_flow.py
+          python -m py_compile Wells_SDK/validate_translation_isolation.py
 
       - name: Validate reviewer linguistic base
         shell: pwsh
         run: |
           python -c "import sys; from pathlib import Path; sys.path.insert(0,'Wells_Revisor'); from wells_base_linguistica import BaseLinguistica; b=BaseLinguistica(Path('Wells_Revisor')); assert b.palavras and b.lexico and b.conjugacoes and b.icf; print('Reviewer linguistic base OK:', len(b.palavras), len(b.lexico), len(b.conjugacoes), len(b.icf))"
 
-      - name: Prepare reduced physical RenPy runtime
+      - name: Prepare Wells Runtime
         run: python Wells_SDK/prepare_runtime.py
 
-      - name: Validate physical RenPy runtime
+      - name: Validate Wells Runtime
         shell: pwsh
         run: |
-          $sdk = Resolve-Path 'build_runtime/renpy-7.4.11-sdk'
+          $sdk = Resolve-Path 'build_runtime/Wells_Runtime'
           if (Test-Path "$sdk/launcher") { throw 'Launcher do SDK ainda presente no runtime reduzido.' }
           if (Test-Path "$sdk/doc") { throw 'Documentação ainda presente no runtime reduzido.' }
-          foreach ($required in @('renpy.exe','renpy/common','renpy/translation','lib/python2.7','lib/windows-x86_64')) {
+          foreach ($required in @('renpy.exe','LICENSE.txt','renpy/common','renpy/translation','lib/python2.7','lib/windows-x86_64')) {
             if (-not (Test-Path "$sdk/$required")) { throw "Dependência necessária ausente: $required" }
           }
           $version = (& "$sdk/renpy.exe" --version 2>&1 | Out-String).Trim()
@@ -63,24 +65,31 @@ jobs:
       - name: Validate original SDK bridge on tutorial
         shell: pwsh
         run: |
-          $sdk = (Resolve-Path 'build_runtime/renpy-7.4.11-sdk').Path
+          $sdk = (Resolve-Path 'build_runtime/Wells_Runtime').Path
           $tutorial = (Resolve-Path '../renpy-7.4.11-sdk/tutorial').Path
           python Wells_SDK/validate_tutorial.py "$sdk" "$tutorial"
+
+      - name: Regression test existing translations
+        shell: pwsh
+        run: |
+          $sdk = (Resolve-Path 'build_runtime/Wells_Runtime').Path
+          $tutorial = (Resolve-Path '../renpy-7.4.11-sdk/tutorial').Path
+          python Wells_SDK/validate_translation_isolation.py "$sdk" "$tutorial"
 
       - name: Validate Manager TAB JSON TXT DOCX flow
         shell: pwsh
         run: |
-          $sdk = (Resolve-Path 'build_runtime/renpy-7.4.11-sdk').Path
+          $sdk = (Resolve-Path 'build_runtime/Wells_Runtime').Path
           $tutorial = (Resolve-Path '../renpy-7.4.11-sdk/tutorial').Path
           python Wells_SDK/validate_manager_flow.py "$sdk" "$tutorial"
 
       - name: Build physical launcher folder
         run: pyinstaller --noconfirm --clean Wells_Manager_Physical.spec
 
-      - name: Add physical RenPy runtime beside launcher
+      - name: Add Wells Runtime beside launcher
         shell: pwsh
         run: |
-          Copy-Item -Recurse -Force 'build_runtime/renpy-7.4.11-sdk' 'dist/Wells_Manager/renpy-7.4.11-sdk'
+          Copy-Item -Recurse -Force 'build_runtime/Wells_Runtime' 'dist/Wells_Manager/Wells_Runtime'
 
       - name: Verify physical package layout
         shell: pwsh
@@ -95,17 +104,19 @@ jobs:
             'Wells_SDK/sdk_core.py',
             'Wells_SDK/dialogue_roundtrip.py',
             'Wells_SDK/dialogue_manager.py',
-            'renpy-7.4.11-sdk/renpy.exe'
+            'Wells_Runtime/renpy.exe',
+            'Wells_Runtime/LICENSE.txt'
           )) {
             if (-not (Test-Path "$root/$required")) { throw "Arquivo físico obrigatório ausente: $required" }
           }
+          if (Test-Path "$root/renpy-7.4.11-sdk") { throw 'Nome antigo do SDK não deve existir no pacote Wells.' }
           if (Test-Path "$root/_internal") { throw 'Layout físico inválido: pasta _internal foi criada.' }
           if (Get-ChildItem $root -Recurse -Directory | Where-Object { $_.Name -like '_MEI*' }) {
             throw 'Layout físico inválido: diretório temporário _MEI encontrado.'
           }
-          $version = (& "$root/renpy-7.4.11-sdk/renpy.exe" --version 2>&1 | Out-String).Trim()
-          if ($version -notmatch "Ren'Py 7\.4\.11") { throw 'renpy.exe físico do pacote não iniciou.' }
-          Write-Host 'Pacote físico validado: launcher + módulos + runtime RenPy em disco.'
+          $version = (& "$root/Wells_Runtime/renpy.exe" --version 2>&1 | Out-String).Trim()
+          if ($version -notmatch "Ren'Py 7\.4\.11") { throw 'Motor físico do pacote não iniciou.' }
+          Write-Host 'Pacote físico validado: launcher + módulos + Wells Runtime em disco.'
 
       - name: Create user ZIP
         shell: pwsh
