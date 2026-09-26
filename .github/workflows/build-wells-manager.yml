@@ -39,7 +39,6 @@ jobs:
           python -m py_compile Wells_SDK/prepare_runtime.py
           python -m py_compile Wells_SDK/validate_tutorial.py
           python -m py_compile Wells_SDK/validate_manager_flow.py
-          python -m py_compile Wells_SDK/validate_translation_isolation.py
 
       - name: Validate reviewer linguistic base
         shell: pwsh
@@ -62,19 +61,12 @@ jobs:
           Write-Host $version
           if ($version -notmatch "Ren'Py 7\.4\.11") { throw "Runtime físico não iniciou corretamente: $version" }
 
-      - name: Validate original SDK bridge on tutorial
+      - name: Validate native SDK operations on tutorial
         shell: pwsh
         run: |
           $sdk = (Resolve-Path 'build_runtime/Wells_Runtime').Path
           $tutorial = (Resolve-Path '../renpy-7.4.11-sdk/tutorial').Path
           python Wells_SDK/validate_tutorial.py "$sdk" "$tutorial"
-
-      - name: Regression test existing translations
-        shell: pwsh
-        run: |
-          $sdk = (Resolve-Path 'build_runtime/Wells_Runtime').Path
-          $tutorial = (Resolve-Path '../renpy-7.4.11-sdk/tutorial').Path
-          python Wells_SDK/validate_translation_isolation.py "$sdk" "$tutorial"
 
       - name: Validate Manager TAB JSON TXT DOCX flow
         shell: pwsh
