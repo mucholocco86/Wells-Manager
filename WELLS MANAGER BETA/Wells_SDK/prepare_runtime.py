@@ -78,6 +78,27 @@ def ignore(directory, names):
     return []
 
 
+def prune_paired_python_sources():
+    """Drop .py engine/library sources only when the matching .pyo exists.
+
+    Ren'Py 7.4.11's Windows release runtime ships optimized bytecode alongside
+    sources. Wells does not expose engine development/debugging, so the source
+    duplicate can be omitted. Game/common .rpy files are deliberately untouched.
+    """
+    count = 0
+    saved = 0
+    for root in (OUTPUT / "renpy", OUTPUT / "lib" / "python2.7"):
+        if not root.is_dir():
+            continue
+        for source in list(root.rglob("*.py")):
+            bytecode = source.with_suffix(".pyo")
+            if bytecode.is_file():
+                saved += source.stat().st_size
+                source.unlink()
+                count += 1
+    return count, saved
+
+
 def main():
     if not SOURCE.is_dir():
         raise SystemExit("SDK fonte não encontrado: {}".format(SOURCE))
@@ -88,6 +109,8 @@ def main():
         shutil.rmtree(str(OUTPUT.parent))
     OUTPUT.parent.mkdir(parents=True, exist_ok=True)
     shutil.copytree(str(SOURCE), str(OUTPUT), ignore=ignore)
+
+    pruned_sources, pruned_bytes = prune_paired_python_sources()
 
     required = [
         OUTPUT / "renpy.exe",
@@ -123,6 +146,7 @@ def main():
     print("SDK/authoring removidos:", ", ".join(sorted(EXCLUDE_TOP)))
     print("Plataformas removidas:", ", ".join(sorted(EXCLUDE_LIB)))
     print("Binários Windows headless removidos:", ", ".join(sorted(EXCLUDE_WINDOWS_X64)))
+    print("Fontes Python duplicadas removidas: {} ({:.2f} MiB)".format(pruned_sources, mib(pruned_bytes)))
     print("Tamanho SDK fonte: {:.2f} MiB".format(mib(source_size)))
     print("Tamanho runtime Wells: {:.2f} MiB".format(mib(output_size)))
     print("Redução bruta do runtime: {:.2f} MiB ({:.1f}%)".format(
