@@ -36,6 +36,7 @@ jobs:
           python -m py_compile Wells_SDK/sdk_core.py
           python -m py_compile Wells_SDK/dialogue_roundtrip.py
           python -m py_compile Wells_SDK/validate_game_runtime.py
+          python -m py_compile Wells_SDK/validate_tutorial_runtime.py
 
       - name: Validate reviewer linguistic base
         shell: pwsh
@@ -44,6 +45,34 @@ jobs:
 
       - name: Validate game-provided RenPy runtime detection
         run: python Wells_SDK/validate_game_runtime.py
+
+      - name: Cache RenPy 7.4.11 SDK for CI laboratory
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/renpy-7.4.11-sdk
+          key: renpy-sdk-7.4.11-windows-v1
+
+      - name: Prepare real RenPy 7.4.11 tutorial laboratory
+        shell: pwsh
+        run: |
+          $sdk = Join-Path $env:RUNNER_TEMP 'renpy-7.4.11-sdk'
+          if (-not (Test-Path (Join-Path $sdk 'tutorial/game'))) {
+            $zip = Join-Path $env:RUNNER_TEMP 'renpy-7.4.11-sdk.zip'
+            Invoke-WebRequest -Uri 'https://www.renpy.org/dl/7.4.11/renpy-7.4.11-sdk.zip' -OutFile $zip
+            $hash = (Get-FileHash -Algorithm SHA256 $zip).Hash.ToLowerInvariant()
+            if ($hash -ne '3e158ac5856e9ff7f1d4462f18e16e053fc9f8a59f94340316435bbf2fce10d9') {
+              throw "SHA256 inesperado para o SDK RenPy 7.4.11: $hash"
+            }
+            Expand-Archive -Path $zip -DestinationPath $env:RUNNER_TEMP -Force
+          }
+          if (-not (Test-Path (Join-Path $sdk 'tutorial/game'))) { throw 'Tutorial real do SDK RenPy 7.4.11 não encontrado.' }
+          Write-Host "Laboratório RenPy real pronto: $sdk"
+
+      - name: Validate translation bridge on real RenPy tutorial
+        shell: pwsh
+        run: |
+          $sdk = Join-Path $env:RUNNER_TEMP 'renpy-7.4.11-sdk'
+          python Wells_SDK/validate_tutorial_runtime.py $sdk
 
       - name: Build Wells Manager Beta
         run: pyinstaller --noconfirm --clean Wells_Manager.spec
@@ -69,7 +98,7 @@ jobs:
           if ($listing.Contains('renpy.exe') -or $listing.Contains('renpy-7.4.11-sdk')) {
             throw 'Um runtime/SDK RenPy foi empacotado no Wells Manager, o que não é permitido nesta arquitetura.'
           }
-          if ($listing.Contains('validate_game_runtime.py') -or $listing.Contains('prepare_runtime.py') -or $listing.Contains('validate_tutorial.py')) {
+          if ($listing.Contains('validate_game_runtime.py') -or $listing.Contains('prepare_runtime.py') -or $listing.Contains('validate_tutorial.py') -or $listing.Contains('validate_tutorial_runtime.py')) {
             throw 'Scripts exclusivos do laboratório entraram no executável.'
           }
           Write-Host 'Wells validado sem runtime RenPy embutido; ponte TAB/JSON presente; dicionário PT-BR único.'
