@@ -34,6 +34,7 @@ jobs:
           python -m py_compile Wells_Revisor/wells_guia_ptbr.py
           python -m py_compile Wells_Revisor/wells_isolador_renpy.py
           python -m py_compile Wells_SDK/sdk_core.py
+          python -m py_compile Wells_SDK/dialogue_roundtrip.py
           python -m py_compile Wells_SDK/prepare_runtime.py
           python -m py_compile Wells_SDK/validate_tutorial.py
 
@@ -75,8 +76,6 @@ jobs:
         shell: pwsh
         run: |
           $listing = (pyi-archive_viewer -l 'dist/Wells_Manager.exe' | Out-String)
-          # pyi-archive-viewer may render Windows separators escaped. File names
-          # are unique here, so literal leaf-name checks avoid format ambiguity.
           foreach ($required in @(
             'extractor_core.py',
             'unrpyc.py',
@@ -85,6 +84,7 @@ jobs:
             'Palavras_PT-BR.txt',
             'fserb_icf.csv',
             'sdk_core.py',
+            'dialogue_roundtrip.py',
             'renpy.exe'
           )) {
             if (-not $listing.Contains($required)) { throw "Recurso obrigatório ausente do EXE: $required" }
@@ -94,7 +94,7 @@ jobs:
           if ($listing.Contains('prepare_runtime.py') -or $listing.Contains('validate_tutorial.py')) {
             throw 'Scripts exclusivos do laboratório entraram no executável.'
           }
-          Write-Host 'Recursos físicos do Wells validados; dicionário PT-BR presente uma única vez.'
+          Write-Host 'Recursos físicos do Wells validados; ponte TAB/JSON presente; dicionário PT-BR único.'
 
       - name: Verify executable
         shell: pwsh
