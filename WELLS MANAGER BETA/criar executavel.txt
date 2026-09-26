@@ -1,0 +1,3 @@
+abra o CMD como admin na pasta dos arquivos e use o comando abaixo...
+
+pyinstaller --noconfirm --clean Wells_Manager.spec
