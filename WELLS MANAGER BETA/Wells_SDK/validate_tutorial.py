@@ -14,7 +14,10 @@ import shutil
 import sys
 import tempfile
 
+from docx import Document
+
 import sdk_core
+import dialogue_roundtrip
 
 
 def require(path: Path, message: str) -> None:
@@ -24,6 +27,55 @@ def require(path: Path, message: str) -> None:
 
 def log(message: str) -> None:
     print(message, flush=True)
+
+
+def _verify_roundtrip_target(project, output_dir, result, marker):
+    map_path = Path(result["map"])
+    payload = json.loads(map_path.read_text(encoding="utf-8"))
+    first = payload["entries"][0]
+    target = project / "game" / "tl" / payload["language"] / first["tl_file"]
+    return payload, first, target
+
+
+def _test_roundtrip_txt(project, output_dir):
+    result = dialogue_roundtrip.prepare(project, "wells_roundtrip_txt", fmt="txt", output_dir=output_dir, include_strings=True, log=log)
+    document = Path(result["document"])
+    map_path = Path(result["map"])
+    require(document, "Fluxo Wells TXT não criou documento.")
+    require(map_path, "Fluxo Wells TXT não criou mapa JSON físico.")
+    payload, first, target = _verify_roundtrip_target(project, output_dir, result, "WELLSROUNDTRIPTXT")
+    if not first["serial"].startswith("W") or not first["serial"][1:].isalnum():
+        raise RuntimeError("Serial Wells não é alfanumérico limpo.")
+    lines = document.read_text(encoding="utf-8").splitlines()
+    idx = lines.index(first["serial"])
+    lines[idx + 1] = lines[idx + 1] + " WELLSROUNDTRIPTXT"
+    document.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    injected = dialogue_roundtrip.inject(project, document, log=log)
+    if "WELLSROUNDTRIPTXT" not in target.read_text(encoding="utf-8-sig"):
+        raise RuntimeError("Fluxo Wells TXT não devolveu a tradução ao arquivo TL.")
+    if map_path.exists():
+        raise RuntimeError("Mapa Wells TXT não foi removido após sucesso confirmado.")
+    log("[OK] Wells TAB + JSON + TXT ida/volta funcional: {} registros.".format(injected["entries"]))
+
+
+def _test_roundtrip_docx(project, output_dir):
+    result = dialogue_roundtrip.prepare(project, "wells_roundtrip_docx", fmt="docx", output_dir=output_dir, include_strings=True, log=log)
+    document = Path(result["document"])
+    map_path = Path(result["map"])
+    require(document, "Fluxo Wells DOCX não criou documento.")
+    require(map_path, "Fluxo Wells DOCX não criou mapa JSON físico.")
+    payload, first, target = _verify_roundtrip_target(project, output_dir, result, "WELLSROUNDTRIPDOCX")
+    doc = Document(str(document))
+    paragraphs = doc.paragraphs
+    index = next(i for i, p in enumerate(paragraphs) if p.text.strip().upper() == first["serial"].upper())
+    paragraphs[index + 1].text = paragraphs[index + 1].text + " WELLSROUNDTRIPDOCX"
+    doc.save(str(document))
+    injected = dialogue_roundtrip.inject(project, document, log=log)
+    if "WELLSROUNDTRIPDOCX" not in target.read_text(encoding="utf-8-sig"):
+        raise RuntimeError("Fluxo Wells DOCX não devolveu a tradução ao arquivo TL.")
+    if map_path.exists():
+        raise RuntimeError("Mapa Wells DOCX não foi removido após sucesso confirmado.")
+    log("[OK] Wells TAB + JSON + DOCX ida/volta funcional: {} registros.".format(injected["entries"]))
 
 
 def main() -> int:
@@ -39,6 +91,8 @@ def main() -> int:
 
     with tempfile.TemporaryDirectory(prefix="wells-renpy-tutorial-") as temp:
         project = Path(temp) / "tutorial"
+        output_dir = Path(temp) / "wells-output"
+        output_dir.mkdir()
         shutil.copytree(str(tutorial_source), str(project))
         log("Projeto de teste: " + str(project))
 
@@ -71,9 +125,6 @@ def main() -> int:
             raise RuntimeError("Geração de traduções não criou arquivos .rpy.")
         log("[OK] Geração de traduções funcional: {} arquivos.".format(len(translation_files)))
 
-        # These four actions are exposed in the same Wells Manager translation
-        # dialog. Ren'Py 7.4.11 requires an explicit JSON path for extract and
-        # merge, so exercise the bridge's managed wells_strings_<idioma>.json.
         strings_result = sdk_core.extract_string_translations(project, "wells_test", log=log)
         strings_file = Path(strings_result["file"])
         require(strings_file, "Extração de strings não criou o JSON Wells.")
@@ -87,15 +138,15 @@ def main() -> int:
 
         sdk_core.merge_string_translations(project, "wells_test", replace=False, log=log)
         log("[OK] Mesclagem de strings funcional.")
-
         sdk_core.merge_string_translations(project, "wells_test", replace=True, log=log)
         log("[OK] Mesclagem/substituição de strings funcional.")
-
         sdk_core.reverse_language(project, "wells_test", log=log)
         log("[OK] Inversão de strings funcional.")
 
-        # Remove pre-existing compiled scripts copied with the tutorial so this
-        # check proves the compile command itself generated fresh bytecode.
+        # New Wells bridge: Ren'Py TAB -> physical JSON -> clean document -> TL.
+        _test_roundtrip_txt(project, output_dir)
+        _test_roundtrip_docx(project, output_dir)
+
         for compiled in (project / "game").rglob("*.rpyc"):
             compiled.unlink()
         sdk_core.force_recompile(project, log=log)
