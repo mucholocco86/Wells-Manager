@@ -22,7 +22,7 @@ class WellsManager(tk.Tk):
   super().__init__(); self.title(APP); self.geometry('940x650'); self.minsize(820,600); self.configure(bg='#222222')
   try:self.iconbitmap(str(ROOT/'wells.ico'))
   except Exception:pass
-  self.events=queue.Queue(); self.busy=False; self.pending_tl=None; self.pending_session=None; self.pending_format=None; self.pending_blocks=None; self.project=None; self.last_browse_dir=APP_DIR
+  self.events=queue.Queue(); self.busy=False; self.pending_tl=None; self.pending_session=None; self.pending_format=None; self.pending_blocks=None; self.project=None; self.project_exe=None; self.last_browse_dir=APP_DIR
   self.settings_path=APP_DIR/'Wells_Settings.json'; self.last_translation='english'
   try:
    saved=json.loads(self.settings_path.read_text(encoding='utf-8'))
@@ -32,7 +32,7 @@ class WellsManager(tk.Tk):
   try:self.log_path.write_text('',encoding='utf-8')
   except Exception:pass
   self.status=tk.StringVar(value='Status: Nenhuma operação iniciada.'); self.project_text=tk.StringVar(value='Projeto Ren\'Py: nenhum selecionado')
-  self._style(); self._build(); self.after(60,self._poll); self._log('Wells Manager iniciado.'); self._log('Ferramentas Wells e núcleo Ren\'Py carregados.'); self._log('Pasta de trabalho: '+str(APP_DIR))
+  self._style(); self._build(); self.after(60,self._poll); self._log('Wells Manager iniciado.'); self._log('Ferramentas Wells carregadas. O runtime Ren\'Py será usado a partir do jogo selecionado.'); self._log('Pasta de trabalho: '+str(APP_DIR))
  def _style(self):
   s=ttk.Style(self)
   try:s.theme_use('clam')
@@ -45,8 +45,8 @@ class WellsManager(tk.Tk):
   tk.Button(top,text='Selecionar projeto',command=self.select_project,bg='#a6a6a6',fg='#101010',font=('Segoe UI',8,'bold')).pack(side='left')
   tk.Label(top,textvariable=self.project_text,bg='#222222',fg='#e0e0e0',font=('Segoe UI',9),anchor='w').pack(side='left',padx=10,fill='x',expand=True)
   body=tk.Frame(self,bg='#222222'); body.pack(fill='x',padx=12); self.buttons=[]
-  self._column(body,'FERRAMENTAS', [('RPYC → RPY',self.rpyc_file),('Pasta RPYC → RPY',self.rpyc_folder),('Extrair RPA',self.rpa_file),('Pasta RPA',self.rpa_folder),('Compactar RPA',self.rpa_pack)],0)
-  self._column(body,'REN\'PY', [('Gerar traduções',self.sdk_generate),('Extrair diálogos',self.sdk_dialogue),('Eliminar persistentes',self.sdk_persistent),('Checar script (Lint)',self.sdk_lint),('Forçar recompilação',self.sdk_compile)],1)
+  self._column(body,'REN\'PY', [('Gerar traduções',self.sdk_generate),('Extrair diálogos',self.sdk_dialogue),('Eliminar persistentes',self.sdk_persistent),('Checar script (Lint)',self.sdk_lint),('Forçar recompilação',self.sdk_compile)],0)
+  self._column(body,'FERRAMENTAS', [('RPYC → RPY',self.rpyc_file),('Pasta RPYC → RPY',self.rpyc_folder),('Extrair RPA',self.rpa_file),('Pasta RPA',self.rpa_folder),('Compactar RPA',self.rpa_pack)],1)
   self._column(body,'GERENCIADOR', [('TXT completo',lambda:self.tl_action('txt',False)),('TXT em blocos',lambda:self.tl_action('txt',True)),('DOCX completo',lambda:self.tl_action('docx',False)),('DOCX em blocos',lambda:self.tl_action('docx',True))],2)
   self._column(body,'REVISOR',[('Revisar TXT',lambda:self.revise('txt')),('Revisar DOCX',lambda:self.revise('docx'))],3)
   tk.Label(self,textvariable=self.status,bg='#222222',fg='#f0f0f0',font=('Segoe UI',10)).pack(fill='x',padx=30,pady=(10,4)); self.bar=ttk.Progressbar(self,style='Wells.Horizontal.TProgressbar',maximum=100,length=560); self.bar.pack()
@@ -116,11 +116,12 @@ class WellsManager(tk.Tk):
   if value:self.last_browse_dir=Path(value).resolve().parent
   return value
  def select_project(self):
-  d=self._askdirectory(title="Selecione a pasta principal do jogo Ren'Py")
-  if not d:return False
-  p=Path(d).resolve(); p=p.parent if p.name.lower()=='game' else p
-  if not (p/'game').is_dir():messagebox.showerror(APP,"A pasta selecionada não contém a pasta 'game'."); return False
-  self.project=p; self.project_text.set("Projeto Ren'Py: "+p.name); self._log('Projeto: '+p.name); return True
+  selected=self._askopenfilename(title="Selecione o executável do jogo Ren'Py",filetypes=[("Jogo Ren'Py",'*.exe'),('Executável','*.exe')])
+  if not selected:return False
+  try:runtime=sdk_core.select_game(selected)
+  except Exception as exc:messagebox.showerror(APP,str(exc)); self._log('[ERRO] '+str(exc)); return False
+  self.project=runtime['root']; self.project_exe=runtime['game_exe']; self.project_text.set("Projeto Ren'Py: "+self.project.name)
+  self._log('Projeto: '+self.project.name); self._log('Executável: '+self.project_exe.name); self._log("Runtime do jogo: lib/{} ({}, {})".format(runtime['layout'],runtime['generation'],runtime['architecture'])); return True
  def _need_project(self):return bool(self.project or self.select_project())
  def _sdk(self,title,func,done='Operação concluída.'):
   if not self._need_project():return
@@ -143,7 +144,7 @@ class WellsManager(tk.Tk):
  def sdk_dialogue(self):
   if not self._need_project():return
   win=tk.Toplevel(self); win.title('Extrair / Reinjetar Diálogos'); win.resizable(False,False); win.configure(bg='#222'); win.transient(self); win.grab_set()
-  lang=tk.StringVar(); strings=tk.BooleanVar(value=True)
+  lang=tk.StringVar(value=self.last_translation); strings=tk.BooleanVar(value=True)
   tk.Label(win,text='Idioma da tradução',bg='#222',fg='white').grid(row=0,column=0,padx=12,pady=(12,5),sticky='w'); tk.Entry(win,textvariable=lang,width=24).grid(row=0,column=1,padx=12,pady=(12,5))
   tk.Checkbutton(win,text='Incluir strings traduzíveis (menus, botões etc.)',variable=strings,bg='#222',fg='white',selectcolor='#333',activebackground='#222',activeforeground='white').grid(row=1,column=0,columnspan=2,padx=12,pady=3,sticky='w')
   tk.Label(win,text='Fluxo Wells: clique uma vez para extrair e novamente, após traduzir, para reinjetar.',bg='#222',fg='#d0d0d0',wraplength=430,justify='left').grid(row=2,column=0,columnspan=2,padx=12,pady=(6,4),sticky='w')
@@ -161,7 +162,7 @@ class WellsManager(tk.Tk):
     self._run('Validando e reinjetando diálogos...',w,d); return
    l=lang.get().strip()
    if not l:return messagebox.showerror(APP,'Informe o idioma da tradução.',parent=win)
-   include=strings.get(); win.destroy(); self._log('=== EXTRAIR DIÁLOGOS WELLS {} ==='.format(fmt.upper()))
+   self.last_translation=l; self._save_last_translation(); include=strings.get(); win.destroy(); self._log('=== EXTRAIR DIÁLOGOS WELLS {} ==='.format(fmt.upper()))
    def w():return dialogue_roundtrip.prepare(self.project,l,fmt=fmt,output_dir=APP_DIR,include_strings=include,log=self._log_cb,progress=lambda v,t=None:self._progress(v,t))
    def d(r):self.status.set('Status: Documento Wells pronto; aguardando tradução.'); self._log('[OK] {} registros. Documento: {}'.format(r['entries'],Path(r['document']).name)); self._log('[OK] Mapa físico temporário: '+r['map'])
    self._run('Preparando diálogo Wells...',w,d)
@@ -169,7 +170,9 @@ class WellsManager(tk.Tk):
   tk.Button(win,text='DOCX Wells',command=lambda:wells('docx'),width=18).grid(row=3,column=1,padx=8,pady=8)
   tk.Label(win,text='Exportação técnica original do SDK',bg='#222',fg='#d0d0d0').grid(row=4,column=0,columnspan=2,pady=(8,2))
   def raw(fmt):
-   include=strings.get(); win.destroy(); self._sdk('Extrair diálogos '+fmt.upper(),lambda p,log:sdk_core.extract_dialogue(p,fmt,include,False,False,log),'Diálogos {} extraídos.'.format(fmt.upper()))
+   include=strings.get(); l=lang.get().strip();
+   if l:self.last_translation=l; self._save_last_translation()
+   win.destroy(); self._sdk('Extrair diálogos '+fmt.upper(),lambda p,log:sdk_core.extract_dialogue(p,fmt,include,False,False,log),'Diálogos {} extraídos.'.format(fmt.upper()))
   tk.Button(win,text='TAB original',command=lambda:raw('tab'),width=18).grid(row=5,column=0,padx=8,pady=(2,12))
   tk.Button(win,text='TXT original',command=lambda:raw('txt'),width=18).grid(row=5,column=1,padx=8,pady=(2,12))
  def sdk_persistent(self):
@@ -225,10 +228,8 @@ class WellsManager(tk.Tk):
  # TL Manager
  def _choose_tl(self):return self._askdirectory(title='Selecione a pasta de tradução dentro de game/tl') or None
  def tl_action(self,fmt,blocks):
-  if self.pending_tl and self.pending_format==fmt and self.pending_blocks==blocks:
-   return self.tl_inject()
-  if self.pending_tl:
-   return messagebox.showinfo(APP,'Existe uma extração aguardando tradução. Use o mesmo botão que iniciou essa extração para devolvê-la ao jogo.')
+  if self.pending_tl and self.pending_format==fmt and self.pending_blocks==blocks:return self.tl_inject()
+  if self.pending_tl:return messagebox.showinfo(APP,'Existe uma extração aguardando tradução. Use o mesmo botão que iniciou essa extração para devolvê-la ao jogo.')
   return self.tl_export(fmt,blocks)
  def tl_export(self,fmt,blocks):
   tl=self._choose_tl()
