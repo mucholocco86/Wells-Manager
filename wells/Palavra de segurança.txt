@@ -1,0 +1,7 @@
+Á atualização desta pasta só será permitica após
+uma declaração explícita de aprovação com a palavra
+chave de confirmação a seguir...
+
+“Essa atualização está aprovada.”
+
+sem essa confirmação a pasta nunca deve ser atualizada.
