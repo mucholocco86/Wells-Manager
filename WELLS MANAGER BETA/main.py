@@ -22,7 +22,7 @@ class WellsManager(tk.Tk):
   super().__init__(); self.title(APP); self.geometry('940x650'); self.minsize(820,600); self.configure(bg='#222222')
   try:self.iconbitmap(str(ROOT/'wells.ico'))
   except Exception:pass
-  self.events=queue.Queue(); self.busy=False; self.pending_tl=None; self.pending_session=None; self.pending_format=None; self.pending_blocks=None; self.project=None
+  self.events=queue.Queue(); self.busy=False; self.pending_tl=None; self.pending_session=None; self.pending_format=None; self.pending_blocks=None; self.project=None; self.last_browse_dir=APP_DIR
   self.log_path=APP_DIR/'Wells_Log.txt'
   try:self.log_path.write_text('',encoding='utf-8')
   except Exception:pass
@@ -87,8 +87,28 @@ class WellsManager(tk.Tk):
     elif k=='error':self._set_busy(False); self.status.set('Status: Erro.'); self._log('[ERRO] '+str(e[1])); messagebox.showerror(APP,str(e[1]))
   except queue.Empty:pass
   self.after(60,self._poll)
+ def _browse_initialdir(self):
+  p=Path(self.last_browse_dir)
+  while not p.is_dir() and p.parent!=p:p=p.parent
+  return str(p if p.is_dir() else APP_DIR)
+ def _askdirectory(self,**kwargs):
+  kwargs.setdefault('initialdir',self._browse_initialdir()); value=filedialog.askdirectory(**kwargs)
+  if value:self.last_browse_dir=Path(value).resolve()
+  return value
+ def _askopenfilenames(self,**kwargs):
+  kwargs.setdefault('initialdir',self._browse_initialdir()); values=filedialog.askopenfilenames(**kwargs)
+  if values:self.last_browse_dir=Path(values[0]).resolve().parent
+  return values
+ def _askopenfilename(self,**kwargs):
+  kwargs.setdefault('initialdir',self._browse_initialdir()); value=filedialog.askopenfilename(**kwargs)
+  if value:self.last_browse_dir=Path(value).resolve().parent
+  return value
+ def _asksaveasfilename(self,**kwargs):
+  kwargs.setdefault('initialdir',self._browse_initialdir()); value=filedialog.asksaveasfilename(**kwargs)
+  if value:self.last_browse_dir=Path(value).resolve().parent
+  return value
  def select_project(self):
-  d=filedialog.askdirectory(title="Selecione a pasta principal do jogo Ren'Py")
+  d=self._askdirectory(title="Selecione a pasta principal do jogo Ren'Py")
   if not d:return False
   p=Path(d).resolve(); p=p.parent if p.name.lower()=='game' else p
   if not (p/'game').is_dir():messagebox.showerror(APP,"A pasta selecionada não contém a pasta 'game'."); return False
@@ -151,11 +171,11 @@ class WellsManager(tk.Tk):
  def sdk_compile(self):self._sdk('Forçar recompilação',sdk_core.force_recompile,'Recompilação concluída.') if self._need_project() else None
  # Wells Extractor
  def rpyc_file(self):
-  fs=filedialog.askopenfilenames(title='Selecionar RPYC/RPYMC',filetypes=[("Ren'Py compilado",'*.rpyc *.rpymc'),('Todos','*.*')])
+  fs=self._askopenfilenames(title='Selecionar RPYC/RPYMC',filetypes=[("Ren'Py compilado",'*.rpyc *.rpymc'),('Todos','*.*')])
   if fs:
    ps=[Path(x) for x in fs]; base=Path(os.path.commonpath([str(p.parent) for p in ps])).resolve(); self._extract_rpyc(ps,base,base.name)
  def rpyc_folder(self):
-  d=filedialog.askdirectory(title='Selecionar pasta contendo RPYC/RPYMC')
+  d=self._askdirectory(title='Selecionar pasta contendo RPYC/RPYMC')
   if d:
    f=Path(d).resolve(); self._extract_rpyc([p for p in f.rglob('*') if p.suffix.lower() in ('.rpyc','.rpymc')],f,f.name)
  def _extract_rpyc(self,files,display_root=None,root_name=None):
@@ -164,11 +184,11 @@ class WellsManager(tk.Tk):
   def d(r):self.status.set('Status: Decompilação concluída.'); self._log('[OK] {}, ignorados: {}, erros: {}'.format(r['ok'],r['skipped'],r['errors']))
   self._run('Preparando descompilação...',w,d)
  def rpa_file(self):
-  fs=filedialog.askopenfilenames(title='Selecionar arquivos RPA',filetypes=[("Ren'Py Archive",'*.rpa')])
+  fs=self._askopenfilenames(title='Selecionar arquivos RPA',filetypes=[("Ren'Py Archive",'*.rpa')])
   if fs:
    ps=[Path(x).resolve() for x in fs]; base=Path(os.path.commonpath([str(p.parent) for p in ps])).resolve(); self._extract_rpa(ps,base,base.name)
  def rpa_folder(self):
-  d=filedialog.askdirectory(title='Selecionar pasta contendo RPA')
+  d=self._askdirectory(title='Selecionar pasta contendo RPA')
   if d:
    f=Path(d).resolve(); self._extract_rpa([p for p in f.rglob('*.rpa') if p.is_file()],f,f.name)
  def _extract_rpa(self,files,display_root=None,root_name=None):
@@ -177,13 +197,13 @@ class WellsManager(tk.Tk):
   def d(r):self.status.set('Status: Extração RPA concluída.'); self._log('[OK] Extraídos: {}; RPA: {}; erros: {}'.format(r['extracted'],r['archives'],r['errors']))
   self._run('Preparando extração RPA...',w,d)
  def rpa_pack(self):
-  selected=[Path(x).resolve() for x in filedialog.askopenfilenames(title='Selecionar arquivos para compactar em RPA',filetypes=[('Todos','*.*')])]
+  selected=[Path(x).resolve() for x in self._askopenfilenames(title='Selecionar arquivos para compactar em RPA',filetypes=[('Todos','*.*')])]
   if selected:base=Path(os.path.commonpath([str(p.parent) for p in selected])).resolve()
   else:
-   folder=filedialog.askdirectory(title='Selecionar pasta para compactar em RPA')
+   folder=self._askdirectory(title='Selecionar pasta para compactar em RPA')
    if not folder:return
    selected=[Path(folder).resolve()]; base=selected[0].parent
-  output=filedialog.asksaveasfilename(title='Salvar RPA',defaultextension='.rpa',filetypes=[("Ren'Py Archive",'*.rpa')])
+  output=self._asksaveasfilename(title='Salvar RPA',defaultextension='.rpa',filetypes=[("Ren'Py Archive",'*.rpa')])
   if not output:return
   op=Path(output).resolve(); entries={}; self._log('=== COMPACTAR RPA ===')
   for sp in selected:
@@ -195,7 +215,7 @@ class WellsManager(tk.Tk):
   def d(r):self.status.set('Status: Compactação RPA concluída.'); self._log('[OK] {} arquivos → {}'.format(r['compacted'],Path(r['output']).name))
   self._run('Preparando compactação RPA...',w,d)
  # TL Manager
- def _choose_tl(self):return filedialog.askdirectory(title='Selecione a pasta de tradução dentro de game/tl') or None
+ def _choose_tl(self):return self._askdirectory(title='Selecione a pasta de tradução dentro de game/tl') or None
  def tl_action(self,fmt,blocks):
   if self.pending_tl and self.pending_format==fmt and self.pending_blocks==blocks:
    return self.tl_inject()
@@ -224,7 +244,7 @@ class WellsManager(tk.Tk):
   def d(r):count,mode=r; self.status.set('Status: {} traduções injetadas.'.format(count)); self._log('[OK] Injeção: {} registros ({}).'.format(count,mode)); self.pending_tl=self.pending_session=self.pending_format=self.pending_blocks=None
   self._run('Validando e injetando traduções...',w,d)
  def revise(self,fmt):
-  types=[('Documento TXT','*.txt')] if fmt=='txt' else [('Documento Word','*.docx')]; p=filedialog.askopenfilename(title='Selecione o documento para revisar',filetypes=types+[('Todos','*.*')])
+  types=[('Documento TXT','*.txt')] if fmt=='txt' else [('Documento Word','*.docx')]; p=self._askopenfilename(title='Selecione o documento para revisar',filetypes=types+[('Todos','*.*')])
   if not p:return
   self._log('=== REVISOR {} ==='.format(fmt.upper())); self._log('Documento: '+Path(p).name)
   def prog(v,text=None,log=None):self._progress(v,text,log)
