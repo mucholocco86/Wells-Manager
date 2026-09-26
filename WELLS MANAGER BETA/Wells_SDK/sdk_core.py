@@ -13,6 +13,9 @@ MANAGER_DIR=HERE.parent
 def _sdk_dir():
     """Find the SDK both from source checkout and from a PyInstaller build."""
     candidates=[]
+    override=os.environ.get('WELLS_RENPY_SDK')
+    if override:
+        candidates.append(Path(override))
     bundle=getattr(sys,'_MEIPASS',None)
     if bundle:
         b=Path(bundle)
