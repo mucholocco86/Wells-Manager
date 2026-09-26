@@ -14,7 +14,9 @@ class BaseLinguistica:
     def __init__(self, base_dir: Path):
         self.base_dir = Path(base_dir)
         d = self.base_dir / "dados_linguisticos"
-        self.palavras = self._load_set(d / "Palavras_PT-BR.txt")
+        # O mesmo dicionário principal já é usado pelo revisor. Mantê-lo uma
+        # única vez no pacote evita duplicar ~25 MB sem alterar o vocabulário.
+        self.palavras = self._load_set(self.base_dir / "Palavras_PT-BR.txt")
         self.lexico = self._load_set(d / "fserb_lexico.txt")
         self.verbos = self._load_set(d / "fserb_verbos.txt")
         self.conjugacoes = self._load_set(d / "fserb_conjugacoes.txt")
