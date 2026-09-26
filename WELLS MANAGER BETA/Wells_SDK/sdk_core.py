@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """Ren'Py command bridge used by Wells Manager."""
 from __future__ import annotations
-import json, os, shutil, subprocess, sys, uuid
+import json, os, subprocess, sys
 from pathlib import Path
 
 class SDKError(RuntimeError): pass
@@ -89,60 +89,15 @@ def run(project,args,log=None):
     return {'project':str(project),'command':args,'output':output}
 
 
-def _run_translation_isolated(project, language, args, log=None):
-    """Generate one language without letting unrelated game/tl folders abort it."""
-    root=_project_root(project)
-    tl=root/'game'/'tl'
-    if not tl.is_dir():
-        return run(root,args,log)
-
-    hold=root/('.wells_tl_hold_'+uuid.uuid4().hex)
-    target_live=tl/language
-    isolated=False
-    if log: log('Wells: isolando traduções existentes durante a geração...')
-
-    try:
-        tl.rename(hold)
-        isolated=True
-        tl.mkdir(parents=True,exist_ok=True)
-        target_hold=hold/language
-        if target_hold.exists():
-            shutil.move(str(target_hold),str(target_live))
-
-        result=run(root,args,log)
-
-        if target_live.exists():
-            destination=hold/language
-            if destination.exists():
-                if destination.is_dir(): shutil.rmtree(str(destination))
-                else: destination.unlink()
-            shutil.move(str(target_live),str(destination))
-        return result
-    finally:
-        if isolated:
-            try:
-                if target_live.exists():
-                    destination=hold/language
-                    if destination.exists():
-                        if destination.is_dir(): shutil.rmtree(str(destination))
-                        else: destination.unlink()
-                    shutil.move(str(target_live),str(destination))
-                if tl.exists():
-                    shutil.rmtree(str(tl))
-                if hold.exists():
-                    hold.rename(tl)
-                if log: log('Wells: traduções existentes restauradas.')
-            except Exception as restore_exc:
-                raise SDKError('Wells não conseguiu restaurar game/tl automaticamente. Cópia de segurança: {}. Erro: {}'.format(hold,restore_exc))
-
-
 def generate_translations(project,language,empty=True,log=None):
+    """Expose Ren'Py SDK's native Generate Translations action in the Wells panel."""
     language=_language(language,'Informe o idioma.')
     args=['translate',language]
     if language=='rot13': args.append('--rot13')
     elif language=='piglatin': args.append('--piglatin')
     elif empty: args.append('--empty')
-    return _run_translation_isolated(project,language,args,log)
+    # Wells only replaces the SDK panel/button. Ren'Py performs the operation.
+    return run(project,args,log)
 
 
 def extract_string_translations(project,language,log=None,destination=None):
