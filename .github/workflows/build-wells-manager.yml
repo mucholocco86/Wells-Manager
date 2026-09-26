@@ -29,19 +29,15 @@ jobs:
           python -m py_compile main.py
           python -m py_compile Wells_SDK/sdk_core.py
           python -m py_compile Wells_SDK/prepare_runtime.py
+          python -m py_compile Wells_SDK/validate_tutorial.py
 
       - name: Prepare reduced RenPy runtime
         run: python Wells_SDK/prepare_runtime.py
 
-      - name: Validate reduced runtime with RenPy tutorial
+      - name: Validate reduced runtime structure
         shell: pwsh
         run: |
           $sdk = Resolve-Path 'build_runtime/renpy-7.4.11-sdk'
-          $tutorialSource = Resolve-Path '../renpy-7.4.11-sdk/tutorial'
-          $tutorial = Join-Path $env:RUNNER_TEMP 'wells-renpy-tutorial-test'
-          if (Test-Path $tutorial) { Remove-Item $tutorial -Recurse -Force }
-          Copy-Item $tutorialSource $tutorial -Recurse
-
           if (Test-Path "$sdk/launcher") { throw 'Launcher ainda presente no runtime reduzido.' }
           if (Test-Path "$sdk/doc") { throw 'Documentação ainda presente no runtime reduzido.' }
           foreach ($removed in @('linux-i686','linux-x86_64','mac-x86_64','windows-i686')) {
@@ -50,40 +46,16 @@ jobs:
           foreach ($required in @('renpy.exe','renpy/common','renpy/translation','lib/python2.7','lib/windows-x86_64')) {
             if (-not (Test-Path "$sdk/$required")) { throw "Dependência necessária ausente: $required" }
           }
-
           $version = (& "$sdk/renpy.exe" --version 2>&1 | Out-String).Trim()
           Write-Host $version
           if ($version -notmatch "Ren'Py 7\.4\.11") { throw "Runtime reduzido não iniciou corretamente: $version" }
 
-          function Invoke-RenPy([string[]]$Arguments) {
-            Write-Host ('RenPy tutorial test: ' + ($Arguments -join ' '))
-            & "$sdk/renpy.exe" $tutorial @Arguments
-            if ($LASTEXITCODE -ne 0) { throw "Falha no comando RenPy: $($Arguments -join ' ')" }
-          }
-
-          # Exercise the same real project-command path used by Wells Manager.
-          Invoke-RenPy @('lint', (Join-Path $tutorial 'wells_lint.txt'))
-          if (-not (Test-Path (Join-Path $tutorial 'wells_lint.txt'))) { throw 'Lint não gerou relatório.' }
-
-          Invoke-RenPy @('dialogue')
-          if (-not (Test-Path (Join-Path $tutorial 'dialogue.tab'))) { throw 'Extração TAB não gerou dialogue.tab.' }
-          Remove-Item (Join-Path $tutorial 'dialogue.tab') -Force
-
-          Invoke-RenPy @('dialogue','--text')
-          if (-not (Test-Path (Join-Path $tutorial 'dialogue.txt'))) { throw 'Extração TXT não gerou dialogue.txt.' }
-
-          Invoke-RenPy @('translate','wells_test','--empty')
-          $translationDir = Join-Path $tutorial 'game/tl/wells_test'
-          if (-not (Test-Path $translationDir)) { throw 'Geração de traduções não criou game/tl/wells_test.' }
-          $translationFiles = @(Get-ChildItem $translationDir -Filter '*.rpy' -Recurse -ErrorAction SilentlyContinue)
-          if ($translationFiles.Count -eq 0) { throw 'Geração de traduções não criou arquivos .rpy.' }
-
-          Invoke-RenPy @('compile')
-          $compiled = @(Get-ChildItem (Join-Path $tutorial 'game') -Filter '*.rpyc' -Recurse -ErrorAction SilentlyContinue)
-          if ($compiled.Count -eq 0) { throw 'Forçar recompilação não produziu arquivos .rpyc.' }
-
-          Invoke-RenPy @('rmpersistent')
-          Write-Host 'Tutorial validation completed: lint, dialogue TAB/TXT, translations, compile and persistent cleanup passed.'
+      - name: Functional test through Wells SDK bridge
+        shell: pwsh
+        run: |
+          $sdk = (Resolve-Path 'build_runtime/renpy-7.4.11-sdk').Path
+          $tutorial = (Resolve-Path '../renpy-7.4.11-sdk/tutorial').Path
+          python Wells_SDK/validate_tutorial.py "$sdk" "$tutorial"
 
       - name: Build Wells Manager Beta
         run: pyinstaller --noconfirm --clean Wells_Manager.spec
