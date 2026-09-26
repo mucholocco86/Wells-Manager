@@ -7,6 +7,7 @@ called by the Wells Manager interface. The repository tutorial is never changed.
 """
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 import shutil
@@ -69,6 +70,29 @@ def main() -> int:
         if not translation_files:
             raise RuntimeError("Geração de traduções não criou arquivos .rpy.")
         log("[OK] Geração de traduções funcional: {} arquivos.".format(len(translation_files)))
+
+        # These four actions are exposed in the same Wells Manager translation
+        # dialog. Ren'Py 7.4.11 requires an explicit JSON path for extract and
+        # merge, so exercise the bridge's managed wells_strings_<idioma>.json.
+        strings_result = sdk_core.extract_string_translations(project, "wells_test", log=log)
+        strings_file = Path(strings_result["file"])
+        require(strings_file, "Extração de strings não criou o JSON Wells.")
+        if strings_file.stat().st_size == 0:
+            raise RuntimeError("JSON de strings foi criado vazio.")
+        with strings_file.open("r", encoding="utf-8") as handle:
+            parsed = json.load(handle)
+        if not isinstance(parsed, dict):
+            raise RuntimeError("JSON de strings não contém um objeto válido.")
+        log("[OK] Extração de strings funcional: {} entradas.".format(len(parsed)))
+
+        sdk_core.merge_string_translations(project, "wells_test", replace=False, log=log)
+        log("[OK] Mesclagem de strings funcional.")
+
+        sdk_core.merge_string_translations(project, "wells_test", replace=True, log=log)
+        log("[OK] Mesclagem/substituição de strings funcional.")
+
+        sdk_core.reverse_language(project, "wells_test", log=log)
+        log("[OK] Inversão de strings funcional.")
 
         # Remove pre-existing compiled scripts copied with the tutorial so this
         # check proves the compile command itself generated fresh bytecode.
