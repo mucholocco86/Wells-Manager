@@ -123,10 +123,12 @@ def main() -> int:
         require(Path(strings['file']).is_file() and Path(strings['file']).stat().st_size > 0, 'JSON de strings não foi criado.')
         sdk_core.merge_string_translations(project, target, replace=False, log=log)
         require(broken_file.read_bytes() == broken_payload, 'Operações de strings não restauraram tradução irmã.')
-        log('[OK] Extrair/mesclar strings isola idiomas não relacionados.')
+        require(digest_tree(tl, ignored=(target, broken)) == baseline, 'Uma tradução preexistente mudou durante as operações de tradução.')
+        log('[OK] Extrair/mesclar strings isola idiomas não relacionados e preserva os originais.')
 
         # Lint/compile are deliberately whole-project operations. Remove the
-        # synthetic broken sibling before testing them.
+        # synthetic broken sibling before testing them. Compile is expected to
+        # create/update .rpyc files, so preservation was asserted just above.
         shutil.rmtree(broken_dir)
         lint = sdk_core.lint(project, log=log)
         require(Path(lint['file']).is_file() and Path(lint['file']).stat().st_size > 0, 'Lint não produziu relatório.')
@@ -134,8 +136,6 @@ def main() -> int:
         require(list((project / 'game').rglob('*.rpyc')), 'Recompilação não produziu .rpyc.')
         sdk_core.delete_persistent(project, log=log)
         log('[OK] Lint, recompilação e persistentes executados no tutorial real.')
-
-        require(digest_tree(tl, ignored=(target, broken)) == baseline, 'Arquivos de traduções originais mudaram após a bateria.')
 
     log('VALIDAÇÃO FUNCIONAL WELLS + TUTORIAL RENPY 7.4.11 CONCLUÍDA COM SUCESSO.')
     return 0
