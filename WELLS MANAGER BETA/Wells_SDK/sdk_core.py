@@ -10,9 +10,12 @@ Wells' implementation independent.
 from __future__ import annotations
 
 from collections import deque
+from contextlib import contextmanager
 import json
 import os
+import shutil
 import subprocess
+import tempfile
 from pathlib import Path
 
 
@@ -179,6 +182,66 @@ def _format_strings_json(path):
         raise SDKError('As strings foram extraídas, mas o JSON não pôde ser organizado: {}'.format(exc))
 
 
+@contextmanager
+def _translation_scope(project, keep_language=None, log=None):
+    """Hide unrelated game/tl entries while a translation command boots Ren'Py.
+
+    Ren'Py's generator itself skips tl/* as source material, but the engine parses
+    translation scripts during startup. A broken or third-party translation can
+    therefore abort generation of an entirely different language. Wells keeps the
+    requested language (when one exists), temporarily moves every unrelated tl
+    entry outside game/, runs the command, and restores the game byte-for-byte.
+    """
+    project = _project_root(project)
+    tl_dir = project / 'game' / 'tl'
+    if not tl_dir.is_dir():
+        yield
+        return
+
+    keep = keep_language.casefold() if keep_language else None
+    children = [p for p in tl_dir.iterdir() if keep is None or p.name.casefold() != keep]
+    if not children:
+        yield
+        return
+
+    stash_root = Path(tempfile.mkdtemp(prefix='.wells_tl_stash_', dir=str(project)))
+    stash = stash_root / 'tl'
+    stash.mkdir()
+    moved = []
+    restored = False
+
+    try:
+        for child in children:
+            held = stash / child.name
+            shutil.move(str(child), str(held))
+            moved.append((child, held))
+        if log:
+            if keep_language:
+                log("Wells: traduções não relacionadas isoladas temporariamente; mantendo apenas tl/{} durante esta operação.".format(keep_language))
+            else:
+                log("Wells: pasta game/tl isolada temporariamente para trabalhar somente com os scripts originais do jogo.")
+        yield
+    finally:
+        conflicts = []
+        for original, held in reversed(moved):
+            if not held.exists():
+                continue
+            if original.exists():
+                conflicts.append(str(original))
+                continue
+            shutil.move(str(held), str(original))
+        restored = not conflicts
+        if restored:
+            shutil.rmtree(stash_root, ignore_errors=True)
+            if log:
+                log("Wells: traduções existentes restauradas sem alterações.")
+        else:
+            raise SDKError(
+                "O Ren'Py criou arquivos que conflitam com traduções temporariamente isoladas. "
+                "Para proteger os dados, o Wells não sobrescreveu nada. Cópia preservada em: {}. "
+                "Conflitos: {}".format(stash_root, ', '.join(conflicts)))
+
+
 def _command(runtime, project, args):
     # A distributed Ren'Py game contains the same bootstrap arrangement used by
     # the SDK: bundled Python + the game's bootstrap .py + basedir + command.
@@ -237,6 +300,7 @@ def run(project, args, log=None):
 
 
 def generate_translations(project, language, empty=True, log=None):
+    project = _project_root(project)
     language = _language(language, 'Informe o idioma.')
     args = ['translate', language]
     if language == 'rot13':
@@ -245,14 +309,17 @@ def generate_translations(project, language, empty=True, log=None):
         args.append('--piglatin')
     elif empty:
         args.append('--empty')
-    return run(project, args, log)
+    with _translation_scope(project, keep_language=language, log=log):
+        return run(project, args, log)
 
 
 def extract_string_translations(project, language, log=None, destination=None):
+    project = _project_root(project)
     language = _language(language)
     destination = Path(destination).expanduser().resolve() if destination else _strings_json(project, language)
     destination.parent.mkdir(parents=True, exist_ok=True)
-    result = run(project, ['extract_strings', language, str(destination)], log)
+    with _translation_scope(project, keep_language=language, log=log):
+        result = run(project, ['extract_strings', language, str(destination)], log)
     _format_strings_json(destination)
     if log:
         log('Strings organizadas em: ' + str(destination))
@@ -261,6 +328,7 @@ def extract_string_translations(project, language, log=None, destination=None):
 
 
 def merge_string_translations(project, language, replace=False, log=None, source=None, reverse=False):
+    project = _project_root(project)
     language = _language(language)
     source = Path(source).expanduser().resolve() if source else _strings_json(project, language)
     if not source.is_file():
@@ -270,7 +338,8 @@ def merge_string_translations(project, language, replace=False, log=None, source
         args.append('--reverse')
     if replace:
         args.append('--replace')
-    result = run(project, args, log)
+    with _translation_scope(project, keep_language=language, log=log):
+        result = run(project, args, log)
     result['file'] = str(source)
     return result
 
@@ -280,10 +349,13 @@ def reverse_language(project, language, log=None):
 
 
 def update_launcher_translations(project, log=None):
-    return run(project, ['translate', 'None'], log)
+    project = _project_root(project)
+    with _translation_scope(project, keep_language='None', log=log):
+        return run(project, ['translate', 'None'], log)
 
 
 def extract_dialogue(project, fmt='tab', strings=False, notags=False, escape=False, log=None):
+    project = _project_root(project)
     if fmt not in ('tab', 'txt'):
         raise SDKError('Formato de diálogo inválido.')
     args = ['dialogue']
@@ -295,8 +367,9 @@ def extract_dialogue(project, fmt='tab', strings=False, notags=False, escape=Fal
         args.append('--notags')
     if escape:
         args.append('--escape')
-    result = run(project, args, log)
-    result['file'] = str(_project_root(project) / ('dialogue.txt' if fmt == 'txt' else 'dialogue.tab'))
+    with _translation_scope(project, keep_language=None, log=log):
+        result = run(project, args, log)
+    result['file'] = str(project / ('dialogue.txt' if fmt == 'txt' else 'dialogue.tab'))
     return result
 
 
