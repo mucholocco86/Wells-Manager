@@ -33,18 +33,31 @@ jobs:
       - name: Prepare reduced RenPy runtime
         run: python Wells_SDK/prepare_runtime.py
 
-      - name: Validate reduced runtime
+      - name: Validate reduced runtime and command surface
         shell: pwsh
         run: |
           $sdk = Resolve-Path 'build_runtime/renpy-7.4.11-sdk'
           if (Test-Path "$sdk/launcher") { throw 'Launcher ainda presente no runtime reduzido.' }
           if (Test-Path "$sdk/doc") { throw 'Documentação ainda presente no runtime reduzido.' }
-          if (-not (Test-Path "$sdk/renpy.exe")) { throw 'renpy.exe não encontrado.' }
-          if (-not (Test-Path "$sdk/renpy/common")) { throw 'renpy/common não encontrado.' }
-          if (-not (Test-Path "$sdk/renpy/translation")) { throw 'renpy/translation não encontrado.' }
+          foreach ($removed in @('linux-i686','linux-x86_64','mac-x86_64','windows-i686')) {
+            if (Test-Path "$sdk/lib/$removed") { throw "Plataforma removida reapareceu: $removed" }
+          }
+          foreach ($required in @('renpy.exe','renpy/common','renpy/translation','lib/python2.7','lib/windows-x86_64')) {
+            if (-not (Test-Path "$sdk/$required")) { throw "Dependência necessária ausente: $required" }
+          }
           $version = (& "$sdk/renpy.exe" --version 2>&1 | Out-String).Trim()
           Write-Host $version
           if ($version -notmatch "Ren'Py 7\.4\.11") { throw "Runtime reduzido não iniciou corretamente: $version" }
+
+          # Inspect the command registry exposed by the reduced engine. This is
+          # deliberately non-destructive: no game project is modified here.
+          $help = (& "$sdk/renpy.exe" --help 2>&1 | Out-String)
+          Write-Host $help
+          foreach ($command in @('translate','dialogue','extract_strings','merge_strings','rmpersistent','compile','lint')) {
+            if ($help -notmatch [regex]::Escape($command)) {
+              throw "Comando RenPy necessário não está disponível: $command"
+            }
+          }
 
       - name: Build Wells Manager Beta
         run: pyinstaller --noconfirm --clean Wells_Manager.spec
