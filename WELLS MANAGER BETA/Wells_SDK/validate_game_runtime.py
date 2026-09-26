@@ -40,15 +40,16 @@ def main() -> int:
             assert sdk_core._project_root(exe) == root.resolve()
             assert sdk_core.runtime_for(root)['game_exe'] == exe.resolve()
 
-            # Keep this exact: it is the game-distribution invocation used by
-            # renpy-translator and by real Ren'Py game bootstraps.
+            # Ren'Py 7.4.11 Launcher uses python[w].exe -EO renpy.py <project>.
+            # Wells must preserve those interpreter flags when replacing the SDK
+            # bootstrap with the selected game's own bootstrap.
             command = sdk_core._command(info, root.resolve(), ['translate', 'brazil_teste', '--empty'])
             assert command[0] == str(info['python'])
-            assert command[1] == '-O'
+            assert command[1] == '-EO'
             assert command[2] == str(info['launcher'])
             assert command[3] == str(root.resolve())
             assert command[4:] == ['translate', 'brazil_teste', '--empty']
-    print('Wells game-runtime detection OK: py3/py2, x64/x86 and optimized -O command validated.')
+    print('Wells game-runtime detection OK: py3/py2, x64/x86 and RenPy -EO project mode validated.')
     return 0
 
 
