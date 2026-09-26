@@ -1,8 +1,8 @@
-name: Build Wells Manager Beta
+name: Build Wells Manager Physical
 
 on:
   push:
-    branches: [wells-manager-beta]
+    branches: [wells-manager-physical]
   workflow_dispatch:
 
 jobs:
@@ -26,87 +26,102 @@ jobs:
       - name: Validate Python sources
         shell: pwsh
         run: |
-          python -m py_compile main.py
+          python -m py_compile Wells_Launcher.py
           python -m py_compile Wells_Extractor/extractor_core.py
-          python -m py_compile Wells_Translator/wells_translator_core.py
           python -m py_compile Wells_Revisor/wells_revisor_core.py
           python -m py_compile Wells_Revisor/wells_base_linguistica.py
           python -m py_compile Wells_Revisor/wells_guia_ptbr.py
           python -m py_compile Wells_Revisor/wells_isolador_renpy.py
           python -m py_compile Wells_SDK/sdk_core.py
           python -m py_compile Wells_SDK/dialogue_roundtrip.py
+          python -m py_compile Wells_SDK/dialogue_manager.py
           python -m py_compile Wells_SDK/prepare_runtime.py
           python -m py_compile Wells_SDK/validate_tutorial.py
+          python -m py_compile Wells_SDK/validate_manager_flow.py
 
       - name: Validate reviewer linguistic base
         shell: pwsh
         run: |
           python -c "import sys; from pathlib import Path; sys.path.insert(0,'Wells_Revisor'); from wells_base_linguistica import BaseLinguistica; b=BaseLinguistica(Path('Wells_Revisor')); assert b.palavras and b.lexico and b.conjugacoes and b.icf; print('Reviewer linguistic base OK:', len(b.palavras), len(b.lexico), len(b.conjugacoes), len(b.icf))"
 
-      - name: Prepare reduced RenPy runtime
+      - name: Prepare reduced physical RenPy runtime
         run: python Wells_SDK/prepare_runtime.py
 
-      - name: Validate reduced runtime structure
+      - name: Validate physical RenPy runtime
         shell: pwsh
         run: |
           $sdk = Resolve-Path 'build_runtime/renpy-7.4.11-sdk'
-          if (Test-Path "$sdk/launcher") { throw 'Launcher ainda presente no runtime reduzido.' }
+          if (Test-Path "$sdk/launcher") { throw 'Launcher do SDK ainda presente no runtime reduzido.' }
           if (Test-Path "$sdk/doc") { throw 'Documentação ainda presente no runtime reduzido.' }
-          foreach ($removed in @('linux-i686','linux-x86_64','mac-x86_64','windows-i686')) {
-            if (Test-Path "$sdk/lib/$removed") { throw "Plataforma removida reapareceu: $removed" }
-          }
           foreach ($required in @('renpy.exe','renpy/common','renpy/translation','lib/python2.7','lib/windows-x86_64')) {
             if (-not (Test-Path "$sdk/$required")) { throw "Dependência necessária ausente: $required" }
           }
           $version = (& "$sdk/renpy.exe" --version 2>&1 | Out-String).Trim()
           Write-Host $version
-          if ($version -notmatch "Ren'Py 7\.4\.11") { throw "Runtime reduzido não iniciou corretamente: $version" }
+          if ($version -notmatch "Ren'Py 7\.4\.11") { throw "Runtime físico não iniciou corretamente: $version" }
 
-      - name: Functional test through Wells SDK bridge
+      - name: Validate original SDK bridge on tutorial
         shell: pwsh
         run: |
           $sdk = (Resolve-Path 'build_runtime/renpy-7.4.11-sdk').Path
           $tutorial = (Resolve-Path '../renpy-7.4.11-sdk/tutorial').Path
           python Wells_SDK/validate_tutorial.py "$sdk" "$tutorial"
 
-      - name: Build Wells Manager Beta
-        run: pyinstaller --noconfirm --clean Wells_Manager.spec
-
-      - name: Verify packaged Wells resources
+      - name: Validate Manager TAB JSON TXT DOCX flow
         shell: pwsh
         run: |
-          $listing = (pyi-archive_viewer -l 'dist/Wells_Manager.exe' | Out-String)
+          $sdk = (Resolve-Path 'build_runtime/renpy-7.4.11-sdk').Path
+          $tutorial = (Resolve-Path '../renpy-7.4.11-sdk/tutorial').Path
+          python Wells_SDK/validate_manager_flow.py "$sdk" "$tutorial"
+
+      - name: Build physical launcher folder
+        run: pyinstaller --noconfirm --clean Wells_Manager_Physical.spec
+
+      - name: Add physical RenPy runtime beside launcher
+        shell: pwsh
+        run: |
+          Copy-Item -Recurse -Force 'build_runtime/renpy-7.4.11-sdk' 'dist/Wells_Manager/renpy-7.4.11-sdk'
+
+      - name: Verify physical package layout
+        shell: pwsh
+        run: |
+          $root = Resolve-Path 'dist/Wells_Manager'
           foreach ($required in @(
-            'extractor_core.py',
-            'unrpyc.py',
-            'wells_translator_core.py',
-            'wells_revisor_core.py',
-            'Palavras_PT-BR.txt',
-            'fserb_icf.csv',
-            'sdk_core.py',
-            'dialogue_roundtrip.py',
-            'renpy.exe'
+            'Wells_Manager.exe',
+            'wells.ico',
+            'Wells_Extractor/extractor_core.py',
+            'Wells_Revisor/wells_revisor_core.py',
+            'Wells_Revisor/Palavras_PT-BR.txt',
+            'Wells_SDK/sdk_core.py',
+            'Wells_SDK/dialogue_roundtrip.py',
+            'Wells_SDK/dialogue_manager.py',
+            'renpy-7.4.11-sdk/renpy.exe'
           )) {
-            if (-not $listing.Contains($required)) { throw "Recurso obrigatório ausente do EXE: $required" }
+            if (-not (Test-Path "$root/$required")) { throw "Arquivo físico obrigatório ausente: $required" }
           }
-          $dictionaryCopies = [regex]::Matches($listing, [regex]::Escape('Palavras_PT-BR.txt')).Count
-          if ($dictionaryCopies -ne 1) { throw "Esperada 1 cópia do dicionário PT-BR; encontradas: $dictionaryCopies" }
-          if ($listing.Contains('prepare_runtime.py') -or $listing.Contains('validate_tutorial.py')) {
-            throw 'Scripts exclusivos do laboratório entraram no executável.'
+          if (Test-Path "$root/_internal") { throw 'Layout físico inválido: pasta _internal foi criada.' }
+          if (Get-ChildItem $root -Recurse -Directory | Where-Object { $_.Name -like '_MEI*' }) {
+            throw 'Layout físico inválido: diretório temporário _MEI encontrado.'
           }
-          Write-Host 'Recursos físicos do Wells validados; ponte TAB/JSON presente; dicionário PT-BR único.'
+          $version = (& "$root/renpy-7.4.11-sdk/renpy.exe" --version 2>&1 | Out-String).Trim()
+          if ($version -notmatch "Ren'Py 7\.4\.11") { throw 'renpy.exe físico do pacote não iniciou.' }
+          Write-Host 'Pacote físico validado: launcher + módulos + runtime RenPy em disco.'
 
-      - name: Verify executable
+      - name: Create user ZIP
         shell: pwsh
         run: |
-          if (-not (Test-Path 'dist/Wells_Manager.exe')) { throw 'Wells_Manager.exe não foi gerado.' }
-          $exe = Get-Item 'dist/Wells_Manager.exe'
-          if ($exe.Length -lt 1000000) { throw 'Executável gerado é inesperadamente pequeno.' }
-          $exe | Format-List Name,Length,FullName
+          $zip = 'dist/Wells-Manager-Physical.zip'
+          if (Test-Path $zip) { Remove-Item $zip -Force }
+          Compress-Archive -Path 'dist/Wells_Manager' -DestinationPath $zip -CompressionLevel Optimal
+          $item = Get-Item $zip
+          if ($item.Length -lt 1000000) { throw 'ZIP gerado é inesperadamente pequeno.' }
+          $hash = Get-FileHash $zip -Algorithm SHA256
+          $item | Format-List Name,Length,FullName
+          $hash | Format-List Algorithm,Hash
 
-      - name: Upload beta build
+      - name: Upload physical ZIP
         uses: actions/upload-artifact@v4
         with:
-          name: Wells-Manager-Beta-Windows
-          path: WELLS MANAGER BETA/dist/Wells_Manager.exe
+          name: Wells-Manager-Physical-Windows
+          path: WELLS MANAGER BETA/dist/Wells-Manager-Physical.zip
           if-no-files-found: error
