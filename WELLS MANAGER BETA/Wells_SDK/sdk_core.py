@@ -47,7 +47,7 @@ def _translation_dir(project,language):
 
 
 def _strings_json(project,language):
-    return _translation_dir(project,language)/('wells_strings_'+language+'.json')
+    return _translation_dir(project,language)/'strings.json'
 
 
 def _format_strings_json(path):
