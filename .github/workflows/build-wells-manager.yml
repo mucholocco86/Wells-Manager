@@ -1,8 +1,8 @@
-name: Build Wells Manager
+name: Build Wells Manager Beta
 
 on:
   push:
-    branches: [wells-manager-core]
+    branches: [wells-manager-beta]
   workflow_dispatch:
 
 jobs:
@@ -10,7 +10,7 @@ jobs:
     runs-on: windows-latest
     defaults:
       run:
-        working-directory: WELLS MANAGER
+        working-directory: WELLS MANAGER BETA
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -46,7 +46,7 @@ jobs:
           Write-Host $version
           if ($version -notmatch "Ren'Py 7\.4\.11") { throw "Runtime reduzido não iniciou corretamente: $version" }
 
-      - name: Build Wells Manager
+      - name: Build Wells Manager Beta
         run: pyinstaller --noconfirm --clean Wells_Manager.spec
 
       - name: Verify executable
@@ -57,9 +57,9 @@ jobs:
           if ($exe.Length -lt 1000000) { throw 'Executável gerado é inesperadamente pequeno.' }
           $exe | Format-List Name,Length,FullName
 
-      - name: Upload build
+      - name: Upload beta build
         uses: actions/upload-artifact@v4
         with:
-          name: Wells-Manager-Windows
-          path: WELLS MANAGER/dist/Wells_Manager.exe
+          name: Wells-Manager-Beta-Windows
+          path: WELLS MANAGER BETA/dist/Wells_Manager.exe
           if-no-files-found: error
