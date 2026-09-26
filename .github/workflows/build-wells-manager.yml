@@ -36,8 +36,9 @@ jobs:
           if (-not (Test-Path "$sdk/renpy.exe")) { throw 'renpy.exe não encontrado no SDK.' }
           if (-not (Test-Path "$sdk/renpy/common")) { throw 'renpy/common não encontrado no SDK.' }
           if (-not (Test-Path "$sdk/renpy/translation")) { throw 'módulos de tradução não encontrados no SDK.' }
-          & "$sdk/renpy.exe" --version
-          if ($LASTEXITCODE -ne 0) { throw 'O executável do núcleo RenPy não iniciou corretamente.' }
+          $version = (& "$sdk/renpy.exe" --version 2>&1 | Out-String).Trim()
+          Write-Host $version
+          if ($version -notmatch "Ren'Py 7\.4\.11") { throw "O núcleo esperado Ren'Py 7.4.11 não respondeu corretamente. Resposta: $version" }
 
       - name: Build Wells Manager
         run: pyinstaller --noconfirm --clean Wells_Manager.spec
