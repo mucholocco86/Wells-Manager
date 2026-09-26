@@ -1,11 +1,12 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
-import os,sys,threading,queue
+import json,os,sys,threading,queue
 from pathlib import Path
 import tkinter as tk
-from tkinter import ttk,filedialog,messagebox,simpledialog
+from tkinter import ttk,filedialog,messagebox
 
 ROOT=Path(__file__).resolve().parent
+APP_DIR=Path(sys.executable).resolve().parent if getattr(sys,'frozen',False) else ROOT
 EXTRACTOR_DIR=ROOT/'Wells_Extractor'; TL_DIR=ROOT/'Wells_Translator'; REVISOR_DIR=ROOT/'Wells_Revisor'; SDK_MODULE_DIR=ROOT/'Wells_SDK'
 for d in (EXTRACTOR_DIR,TL_DIR,REVISOR_DIR,SDK_MODULE_DIR):
     if str(d) not in sys.path: sys.path.insert(0,str(d))
@@ -13,6 +14,7 @@ import extractor_core
 import wells_translator_core as tl_core
 from wells_revisor_core import review_file
 import sdk_core
+import dialogue_roundtrip
 APP='Wells Manager'
 
 class WellsManager(tk.Tk):
@@ -20,9 +22,12 @@ class WellsManager(tk.Tk):
   super().__init__(); self.title(APP); self.geometry('940x650'); self.minsize(820,600); self.configure(bg='#222222')
   try:self.iconbitmap(str(ROOT/'wells.ico'))
   except Exception:pass
-  self.events=queue.Queue(); self.busy=False; self.pending_tl=None; self.pending_session=None; self.pending_format=None; self.project=None
+  self.events=queue.Queue(); self.busy=False; self.pending_tl=None; self.pending_session=None; self.pending_format=None; self.pending_blocks=None; self.project=None
+  self.log_path=APP_DIR/'Wells_Log.txt'
+  try:self.log_path.write_text('',encoding='utf-8')
+  except Exception:pass
   self.status=tk.StringVar(value='Status: Nenhuma operação iniciada.'); self.project_text=tk.StringVar(value='Projeto Ren\'Py: nenhum selecionado')
-  self._style(); self._build(); self.after(60,self._poll); self._log('Wells Manager iniciado.'); self._log('Ferramentas Wells e núcleo Ren\'Py carregados.')
+  self._style(); self._build(); self.after(60,self._poll); self._log('Wells Manager iniciado.'); self._log('Ferramentas Wells e núcleo Ren\'Py carregados.'); self._log('Pasta de trabalho: '+str(APP_DIR))
  def _style(self):
   s=ttk.Style(self)
   try:s.theme_use('clam')
@@ -37,7 +42,7 @@ class WellsManager(tk.Tk):
   body=tk.Frame(self,bg='#222222'); body.pack(fill='x',padx=12); self.buttons=[]
   self._column(body,'FERRAMENTAS', [('RPYC → RPY',self.rpyc_file),('Pasta RPYC → RPY',self.rpyc_folder),('Extrair RPA',self.rpa_file),('Pasta RPA',self.rpa_folder),('Compactar RPA',self.rpa_pack)],0)
   self._column(body,'REN\'PY', [('Gerar traduções',self.sdk_generate),('Extrair diálogos',self.sdk_dialogue),('Eliminar persistentes',self.sdk_persistent),('Checar script (Lint)',self.sdk_lint),('Forçar recompilação',self.sdk_compile)],1)
-  self._column(body,'GERENCIADOR', [('TXT completo',lambda:self.tl_export('txt',False)),('TXT em blocos',lambda:self.tl_export('txt',True)),('DOCX completo',lambda:self.tl_export('docx',False)),('DOCX em blocos',lambda:self.tl_export('docx',True)),('Injetar tradução',self.tl_inject)],2)
+  self._column(body,'GERENCIADOR', [('TXT completo',lambda:self.tl_action('txt',False)),('TXT em blocos',lambda:self.tl_action('txt',True)),('DOCX completo',lambda:self.tl_action('docx',False)),('DOCX em blocos',lambda:self.tl_action('docx',True))],2)
   self._column(body,'REVISOR',[('Revisar TXT',lambda:self.revise('txt')),('Revisar DOCX',lambda:self.revise('docx'))],3)
   tk.Label(self,textvariable=self.status,bg='#222222',fg='#f0f0f0',font=('Segoe UI',10)).pack(fill='x',padx=30,pady=(10,4)); self.bar=ttk.Progressbar(self,style='Wells.Horizontal.TProgressbar',maximum=100,length=560); self.bar.pack()
   la=tk.Frame(self,bg='#222222',height=205); la.pack(fill='both',expand=True,padx=50,pady=(8,12)); la.pack_propagate(False)
@@ -48,7 +53,11 @@ class WellsManager(tk.Tk):
   for text,cmd in items:
    b=tk.Button(f,text=text,command=cmd,height=1,bg='#a6a6a6',fg='#101010',activebackground='#c5c5c5',relief='raised',bd=2,font=('Segoe UI',8,'bold')); b.pack(padx=8,pady=2,fill='x'); self.buttons.append(b)
   tk.Frame(f,bg='#2b2b2b',height=6).pack()
- def _log(self,text): self.log.configure(state='normal'); self.log.insert('end',str(text)+'\n'); self.log.see('end'); self.log.configure(state='disabled')
+ def _log(self,text):
+  text=str(text); self.log.configure(state='normal'); self.log.insert('end',text+'\n'); self.log.see('end'); self.log.configure(state='disabled')
+  try:
+   with self.log_path.open('a',encoding='utf-8',newline='\n') as f:f.write(text+'\n')
+  except Exception:pass
  def _set_busy(self,v):
   self.busy=v
   for b in self.buttons:b.configure(state='disabled' if v else 'normal')
@@ -105,12 +114,36 @@ class WellsManager(tk.Tk):
   for i,(t,k) in enumerate([('Gerar','generate'),('Extrair strings','extract'),('Mesclar','merge'),('Substituir','replace'),('Inverter','reverse')]):tk.Button(bf,text=t,command=lambda x=k:go(x),width=14).grid(row=i//2,column=i%2,padx=3,pady=3)
  def sdk_dialogue(self):
   if not self._need_project():return
-  win=tk.Toplevel(self); win.title('Extrair Diálogos'); win.resizable(False,False); win.configure(bg='#222'); win.transient(self); win.grab_set(); fmt=tk.StringVar(value='tab'); strings=tk.BooleanVar(); notags=tk.BooleanVar(); escape=tk.BooleanVar()
-  for text,val in [('Planilha TAB (dialogue.tab)','tab'),('Texto (dialogue.txt)','txt')]:tk.Radiobutton(win,text=text,value=val,variable=fmt,bg='#222',fg='white',selectcolor='#333',activebackground='#222',activeforeground='white').pack(anchor='w',padx=15,pady=3)
-  for text,var in [('Extrair todas as strings traduzíveis',strings),('Remover tags de texto',notags),('Escapar caracteres especiais',escape)]:tk.Checkbutton(win,text=text,variable=var,bg='#222',fg='white',selectcolor='#333',activebackground='#222',activeforeground='white').pack(anchor='w',padx=15,pady=3)
-  def go():
-   f=fmt.get(); s=strings.get(); n=notags.get(); e=escape.get(); win.destroy(); self._sdk('Extrair diálogos',lambda p,log:sdk_core.extract_dialogue(p,f,s,n,e,log),'Diálogos extraídos.')
-  tk.Button(win,text='Extrair',command=go,width=18).pack(pady=12)
+  win=tk.Toplevel(self); win.title('Extrair / Reinjetar Diálogos'); win.resizable(False,False); win.configure(bg='#222'); win.transient(self); win.grab_set()
+  lang=tk.StringVar(); strings=tk.BooleanVar(value=True)
+  tk.Label(win,text='Idioma da tradução',bg='#222',fg='white').grid(row=0,column=0,padx=12,pady=(12,5),sticky='w'); tk.Entry(win,textvariable=lang,width=24).grid(row=0,column=1,padx=12,pady=(12,5))
+  tk.Checkbutton(win,text='Incluir strings traduzíveis (menus, botões etc.)',variable=strings,bg='#222',fg='white',selectcolor='#333',activebackground='#222',activeforeground='white').grid(row=1,column=0,columnspan=2,padx=12,pady=3,sticky='w')
+  tk.Label(win,text='Fluxo Wells: clique uma vez para extrair e novamente, após traduzir, para reinjetar.',bg='#222',fg='#d0d0d0',wraplength=430,justify='left').grid(row=2,column=0,columnspan=2,padx=12,pady=(6,4),sticky='w')
+  def wells(fmt):
+   map_path=APP_DIR/dialogue_roundtrip.TEMP_DIR_NAME/dialogue_roundtrip.MAP_NAME
+   if map_path.is_file():
+    try:info=json.loads(map_path.read_text(encoding='utf-8'))
+    except Exception as exc:return messagebox.showerror(APP,'Mapa Wells inválido: '+str(exc),parent=win)
+    if info.get('format')!=fmt:return messagebox.showerror(APP,'Existe um fluxo {} pendente. Finalize-o pelo mesmo botão antes de iniciar outro.'.format(str(info.get('format','')).upper()),parent=win)
+    document=APP_DIR/info.get('document','')
+    if not document.is_file():return messagebox.showerror(APP,'Documento do fluxo pendente não foi encontrado: '+str(document),parent=win)
+    win.destroy(); self._log('=== REINJETAR DIÁLOGOS WELLS {} ==='.format(fmt.upper()))
+    def w():return dialogue_roundtrip.inject(self.project,document,log=self._log_cb,progress=lambda v,t=None:self._progress(v,t))
+    def d(r):self.status.set('Status: Reinjeção Wells concluída.'); self._log('[OK] {} registros reinjetados em {} arquivos TL.'.format(r['entries'],r['files']))
+    self._run('Validando e reinjetando diálogos...',w,d); return
+   l=lang.get().strip()
+   if not l:return messagebox.showerror(APP,'Informe o idioma da tradução.',parent=win)
+   include=strings.get(); win.destroy(); self._log('=== EXTRAIR DIÁLOGOS WELLS {} ==='.format(fmt.upper()))
+   def w():return dialogue_roundtrip.prepare(self.project,l,fmt=fmt,output_dir=APP_DIR,include_strings=include,log=self._log_cb,progress=lambda v,t=None:self._progress(v,t))
+   def d(r):self.status.set('Status: Documento Wells pronto; aguardando tradução.'); self._log('[OK] {} registros. Documento: {}'.format(r['entries'],Path(r['document']).name)); self._log('[OK] Mapa físico temporário: '+r['map'])
+   self._run('Preparando diálogo Wells...',w,d)
+  tk.Button(win,text='TXT Wells',command=lambda:wells('txt'),width=18).grid(row=3,column=0,padx=8,pady=8)
+  tk.Button(win,text='DOCX Wells',command=lambda:wells('docx'),width=18).grid(row=3,column=1,padx=8,pady=8)
+  tk.Label(win,text='Exportação técnica original do SDK',bg='#222',fg='#d0d0d0').grid(row=4,column=0,columnspan=2,pady=(8,2))
+  def raw(fmt):
+   include=strings.get(); win.destroy(); self._sdk('Extrair diálogos '+fmt.upper(),lambda p,log:sdk_core.extract_dialogue(p,fmt,include,False,False,log),'Diálogos {} extraídos.'.format(fmt.upper()))
+  tk.Button(win,text='TAB original',command=lambda:raw('tab'),width=18).grid(row=5,column=0,padx=8,pady=(2,12))
+  tk.Button(win,text='TXT original',command=lambda:raw('txt'),width=18).grid(row=5,column=1,padx=8,pady=(2,12))
  def sdk_persistent(self):
   if not self._need_project():return
   if messagebox.askyesno(APP,'Eliminar os dados persistentes deste projeto?'):self._sdk('Eliminar dados persistentes',sdk_core.delete_persistent,'Dados persistentes eliminados.')
@@ -163,31 +196,32 @@ class WellsManager(tk.Tk):
   self._run('Preparando compactação RPA...',w,d)
  # TL Manager
  def _choose_tl(self):return filedialog.askdirectory(title='Selecione a pasta de tradução dentro de game/tl') or None
+ def tl_action(self,fmt,blocks):
+  if self.pending_tl and self.pending_format==fmt and self.pending_blocks==blocks:
+   return self.tl_inject()
+  if self.pending_tl:
+   return messagebox.showinfo(APP,'Existe uma extração aguardando tradução. Use o mesmo botão que iniciou essa extração para devolvê-la ao jogo.')
+  return self.tl_export(fmt,blocks)
  def tl_export(self,fmt,blocks):
   tl=self._choose_tl()
   if not tl:return
   self._log('=== EXTRAIR {} ==='.format(fmt.upper())); self._log('Raiz: '+Path(tl).name)
   def prog(v,t=None):self._progress(v,t)
   def w():
-   if fmt=='txt':return (tl_core.export_blocks if blocks else tl_core.export_full)(tl,ROOT,return_session=True,progress=prog)
-   return (tl_core.export_blocks_docx if blocks else tl_core.export_full_docx)(tl,ROOT,return_session=True,progress=prog)
+   if fmt=='txt':return (tl_core.export_blocks if blocks else tl_core.export_full)(tl,APP_DIR,return_session=True,progress=prog)
+   return (tl_core.export_blocks_docx if blocks else tl_core.export_full_docx)(tl,APP_DIR,return_session=True,progress=prog)
   def d(r):
    if blocks:output,count,nblocks,session=r; self._log('[OK] {} registros / {} blocos.'.format(count,nblocks))
    else:output,count,session=r; self._log('[OK] {} registros.'.format(count))
-   self.pending_tl=tl; self.pending_session=session; self.pending_format=fmt; self.status.set('Status: Extração concluída; aguardando tradução.')
+   self.pending_tl=tl; self.pending_session=session; self.pending_format=fmt; self.pending_blocks=blocks; self.status.set('Status: Extração concluída; aguardando tradução. Clique no mesmo botão para reinjetar.')
   self._run('Extraindo {}...'.format(fmt.upper()),w,d)
  def tl_inject(self):
-  tl=self.pending_tl or self._choose_tl()
-  if not tl:return
+  tl=self.pending_tl
+  if not tl:return messagebox.showerror(APP,'Nenhuma extração desta sessão está aguardando reinjeção.')
   fmt=self.pending_format
-  if fmt is None:
-   hd=(ROOT/'old.docx').exists() or any(ROOT.glob('old_*.docx')); ht=(ROOT/'old.txt').exists() or any(ROOT.glob('old_*.txt'))
-   if hd and not ht:fmt='docx'
-   elif ht and not hd:fmt='txt'
-   else:return messagebox.showerror(APP,'Não foi possível determinar TXT ou DOCX.')
   def prog(v,t=None):self._progress(v,t)
-  def w():return (tl_core.inject_docx_translations if fmt=='docx' else tl_core.inject_translations)(tl,ROOT,session=self.pending_session,progress=prog)
-  def d(r):count,mode=r; self.status.set('Status: {} traduções injetadas.'.format(count)); self._log('[OK] Injeção: {} registros ({}).'.format(count,mode)); self.pending_tl=self.pending_session=self.pending_format=None
+  def w():return (tl_core.inject_docx_translations if fmt=='docx' else tl_core.inject_translations)(tl,APP_DIR,session=self.pending_session,progress=prog)
+  def d(r):count,mode=r; self.status.set('Status: {} traduções injetadas.'.format(count)); self._log('[OK] Injeção: {} registros ({}).'.format(count,mode)); self.pending_tl=self.pending_session=self.pending_format=self.pending_blocks=None
   self._run('Validando e injetando traduções...',w,d)
  def revise(self,fmt):
   types=[('Documento TXT','*.txt')] if fmt=='txt' else [('Documento Word','*.docx')]; p=filedialog.askopenfilename(title='Selecione o documento para revisar',filetypes=types+[('Todos','*.*')])
