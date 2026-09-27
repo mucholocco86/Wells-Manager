@@ -49,17 +49,17 @@ def ignore(directory, names):
 
 
 def patch_translation_source_scan():
-    """Make the project's game/tl output-only during Wells translation generation.
+    """Make translated language folders output-only during Wells generation.
 
-    Ren'Py's generator already excludes tl/ when it enumerates source files,
-    but the engine parses all .rpy/.rpyc files before the command runs. That
-    earlier parse is what lets a broken pre-existing translation abort creation
-    of an unrelated new language. Ren'Py's own common/tl modules are preserved.
+    Ren'Py's generator already excludes tl/ when enumerating source files, but
+    the engine parses scripts before that command runs. Wells skips translated
+    language folders at that earlier stage. The special tl/None bootstrap tree
+    is retained because some Ren'Py projects explicitly load modules from it.
     """
     script = OUTPUT / "renpy" / "script.py"
     text = script.read_text(encoding="utf-8")
     old = '''        for dir, fn in dirlist: # @ReservedAssignment\n\n            if fn.endswith(".rpy"):\n'''
-    new = '''        wells_originals_only = os.environ.get("WELLS_TRANSLATE_ORIGINALS_ONLY", "") == "1"\n        tl_prefix = renpy.config.tl_directory.replace("\\\\", "/").strip("/") + "/"\n        wells_gamedir = os.path.normcase(os.path.normpath(renpy.config.gamedir))\n\n        for dir, fn in dirlist: # @ReservedAssignment\n\n            # Wells Generate Translations treats only the project's game/tl as\n            # output. Ren'Py's own common/tl modules must remain loadable.\n            wells_project_file = (dir is None) or (os.path.normcase(os.path.normpath(dir)) == wells_gamedir)\n            if wells_originals_only and wells_project_file and fn.replace("\\\\", "/").startswith(tl_prefix):\n                continue\n\n            if fn.endswith(".rpy"):\n'''
+    new = '''        wells_originals_only = os.environ.get("WELLS_TRANSLATE_ORIGINALS_ONLY", "") == "1"\n        tl_prefix = renpy.config.tl_directory.replace("\\\\", "/").strip("/") + "/"\n        tl_none_prefix = tl_prefix + "None/"\n\n        for dir, fn in dirlist: # @ReservedAssignment\n\n            # Wells Generate Translations ignores actual translated languages.\n            # tl/None is a Ren'Py bootstrap/module tree in some projects, not a\n            # user language translation, and therefore must remain loadable.\n            wells_fn = fn.replace("\\\\", "/")\n            if wells_originals_only and wells_fn.startswith(tl_prefix) and not wells_fn.startswith(tl_none_prefix):\n                continue\n\n            if fn.endswith(".rpy"):\n'''
     if old not in text:
         raise SystemExit("Ponto de patch do scanner Ren'Py 7.4.11 não encontrado.")
     script.write_text(text.replace(old, new, 1), encoding="utf-8")
@@ -113,7 +113,7 @@ def main():
 
     output_size = directory_size(OUTPUT); saved = source_size - output_size
     print("Wells Runtime preparado em:", OUTPUT)
-    print("Scanner Wells: game/tl do projeto é somente saída durante Generate Translations.")
+    print("Scanner Wells: idiomas em game/tl são somente saída durante Generate Translations; tl/None técnico é preservado.")
     print("SDK/authoring removidos:", ", ".join(sorted(EXCLUDE_TOP)))
     print("Plataformas removidas:", ", ".join(sorted(EXCLUDE_LIB)))
     print("Binários Windows headless removidos:", ", ".join(sorted(EXCLUDE_WINDOWS_X64)))
