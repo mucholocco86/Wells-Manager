@@ -109,6 +109,13 @@ def run(project,args,log=None):
         startup=subprocess.STARTUPINFO(); startup.dwFlags|=subprocess.STARTF_USESHOWWINDOW
     env=dict(os.environ)
     env.setdefault('RENPY_LAUNCHER_LANGUAGE','english')
+    # During Generate Translations the Wells contract is source-only: game/tl
+    # is an output tree, never an input tree. Other Ren'Py operations keep the
+    # engine's normal behaviour.
+    originals_only=bool(args and args[0]=='translate')
+    if originals_only:
+        env['WELLS_TRANSLATE_ORIGINALS_ONLY']='1'
+        if log: log("Fonte da tradução: somente scripts originais do jogo; game/tl ignorada na leitura.")
     proc=subprocess.Popen(cmd,cwd=str(sdk),env=env,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,universal_newlines=True,errors='replace',startupinfo=startup)
     output=[]
     for line in proc.stdout:
@@ -122,13 +129,12 @@ def run(project,args,log=None):
 
 
 def generate_translations(project,language,empty=True,log=None):
-    """Expose Ren'Py SDK's native Generate Translations action in the Wells panel."""
+    """Generate a translation from the original game scripts, treating TL as output only."""
     language=_language(language,'Informe o idioma.')
     args=['translate',language]
     if language=='rot13': args.append('--rot13')
     elif language=='piglatin': args.append('--piglatin')
     elif empty: args.append('--empty')
-    # Wells only replaces the SDK panel/button. Ren'Py performs the operation.
     return run(project,args,log)
 
 
