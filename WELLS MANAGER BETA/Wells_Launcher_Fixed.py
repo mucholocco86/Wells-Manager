@@ -1,8 +1,9 @@
 # -*- coding: utf-8 -*-
 """Physical Wells launcher entry point.
 
-Keeps exactly the folder chosen by the user and points the command bridge to
-the physical Wells_Runtime directory shipped beside the launcher.
+Keeps exactly the folder chosen by the user, remembers the parent location for
+future file dialogs, and points the command bridge to the physical Wells_Runtime
+directory shipped beside the launcher.
 """
 from __future__ import annotations
 
@@ -20,6 +21,19 @@ def _physical_log(self, text):
         return
     return _original_log(self, text)
 base.WellsManager._log = _physical_log
+
+
+# Directory dialogs must remember where the selected object lives, not enter
+# the selected directory on the next browse. File dialogs in the base launcher
+# already keep their parent directory, so this makes the rule global and
+# consistent without changing the selected value returned to each operation.
+_original_askdirectory = base.WellsManager._askdirectory
+def _askdirectory_parent_memory(self, **kwargs):
+    value = _original_askdirectory(self, **kwargs)
+    if value:
+        self.last_browse_dir = Path(value).expanduser().resolve().parent
+    return value
+base.WellsManager._askdirectory = _askdirectory_parent_memory
 
 
 def validate_selected_project(directory):
