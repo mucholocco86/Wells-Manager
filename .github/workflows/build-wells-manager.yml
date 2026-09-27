@@ -1,4 +1,4 @@
-name: Build Wells Manager Compact
+name: Build Wells Manager Compact OneFile
 
 on:
   push:
@@ -45,7 +45,7 @@ jobs:
         run: |
           python -c "import sys; from pathlib import Path; sys.path.insert(0,'Wells_Revisor'); from wells_base_linguistica import BaseLinguistica; b=BaseLinguistica(Path('Wells_Revisor')); assert b.palavras and b.lexico and b.conjugacoes and b.icf; print('Reviewer linguistic base OK:', len(b.palavras), len(b.lexico), len(b.conjugacoes), len(b.icf))"
 
-      - name: Prepare existing Manager runtime dependency
+      - name: Prepare internal Manager runtime
         run: python Wells_SDK/prepare_runtime.py
 
       - name: Validate Manager TXT DOCX round-trip
@@ -55,48 +55,27 @@ jobs:
           $tutorial = (Resolve-Path '../renpy-7.4.11-sdk/tutorial').Path
           python Wells_SDK/validate_manager_flow.py "$sdk" "$tutorial"
 
-      - name: Build three-block launcher
+      - name: Build single portable executable
         run: pyinstaller --noconfirm --clean Wells_Manager_Physical.spec
 
-      - name: Add Manager runtime dependency
+      - name: Verify exactly one distributable EXE
         shell: pwsh
         run: |
-          Copy-Item -Recurse -Force 'build_runtime/Wells_Runtime' 'dist/Wells_Manager/Wells_Runtime'
-
-      - name: Verify compact package layout
-        shell: pwsh
-        run: |
-          $root = Resolve-Path 'dist/Wells_Manager'
-          foreach ($required in @(
-            'Wells_Manager.exe',
-            'wells.ico',
-            'Wells_Extractor/extractor_core.py',
-            'Wells_Revisor/wells_revisor_core.py',
-            'Wells_Revisor/Palavras_PT-BR.txt',
-            'Wells_SDK/dialogue_roundtrip.py',
-            'Wells_SDK/dialogue_manager.py',
-            'Wells_Runtime/renpy.exe'
-          )) {
-            if (-not (Test-Path "$root/$required")) { throw "Arquivo obrigatório ausente: $required" }
-          }
-          if (Test-Path "$root/_internal") { throw 'Layout físico inválido: pasta _internal foi criada.' }
-          Write-Host 'Pacote provisório validado: GERENCIADOR + REVISOR + FERRAMENTAS.'
-
-      - name: Create provisional ZIP
-        shell: pwsh
-        run: |
-          $zip = 'dist/Wells-Manager-Compact.zip'
-          if (Test-Path $zip) { Remove-Item $zip -Force }
-          Compress-Archive -Path 'dist/Wells_Manager' -DestinationPath $zip -CompressionLevel Optimal
-          $item = Get-Item $zip
-          if ($item.Length -lt 1000000) { throw 'ZIP gerado é inesperadamente pequeno.' }
-          $hash = Get-FileHash $zip -Algorithm SHA256
-          $item | Format-List Name,Length,FullName
+          $exe = Resolve-Path 'dist/Wells_Manager.exe'
+          $files = @(Get-ChildItem 'dist' -File)
+          $dirs = @(Get-ChildItem 'dist' -Directory)
+          if ($files.Count -ne 1) { throw "Esperado exatamente 1 arquivo em dist; encontrados $($files.Count)." }
+          if ($dirs.Count -ne 0) { throw "Nenhuma pasta distributável era esperada em dist; encontradas $($dirs.Count)." }
+          if ($exe.Path -ne $files[0].FullName) { throw 'O único arquivo gerado não é Wells_Manager.exe.' }
+          if ($exe.Path -notlike '*.exe') { throw 'Executável final ausente.' }
+          $hash = Get-FileHash $exe -Algorithm SHA256
+          Get-Item $exe | Format-List Name,Length,FullName
           $hash | Format-List Algorithm,Hash
+          Write-Host 'ONE-FILE validado: um único Wells_Manager.exe contém Gerenciador + Revisor + Ferramentas e suas dependências.'
 
-      - name: Upload provisional ZIP
+      - name: Upload single executable
         uses: actions/upload-artifact@v4
         with:
-          name: Wells-Manager-Compact-Windows
-          path: WELLS MANAGER BETA/dist/Wells-Manager-Compact.zip
+          name: Wells-Manager-Portable-OneFile
+          path: WELLS MANAGER BETA/dist/Wells_Manager.exe
           if-no-files-found: error
