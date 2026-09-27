@@ -39,6 +39,7 @@ jobs:
           python -m py_compile Wells_SDK/prepare_runtime.py
           python -m py_compile Wells_SDK/validate_tutorial.py
           python -m py_compile Wells_SDK/validate_manager_flow.py
+          python -m py_compile Wells_SDK/validate_tl_isolation.py
 
       - name: Validate reviewer linguistic base
         shell: pwsh
@@ -54,12 +55,20 @@ jobs:
           $sdk = Resolve-Path 'build_runtime/Wells_Runtime'
           if (Test-Path "$sdk/launcher") { throw 'Launcher do SDK ainda presente no runtime reduzido.' }
           if (Test-Path "$sdk/doc") { throw 'Documentação ainda presente no runtime reduzido.' }
-          foreach ($required in @('renpy.exe','renpy.py','LICENSE.txt','renpy/common','renpy/translation','lib/python2.7','lib/windows-x86_64','lib/windows-x86_64/pythonw.exe')) {
+          foreach ($required in @('renpy.exe','renpy.py','renpy/script.py','LICENSE.txt','renpy/common','renpy/translation','lib/python2.7','lib/windows-x86_64','lib/windows-x86_64/pythonw.exe')) {
             if (-not (Test-Path "$sdk/$required")) { throw "Dependência necessária ausente: $required" }
           }
+          if (Test-Path "$sdk/renpy/script.pyo") { throw 'Bytecode antigo de script.py neutralizaria o isolamento Wells.' }
           $version = (& "$sdk/renpy.exe" --version 2>&1 | Out-String).Trim()
           Write-Host $version
           if ($version -notmatch "Ren'Py 7\.4\.11") { throw "Runtime físico não iniciou corretamente: $version" }
+
+      - name: Validate TL isolation with deliberately broken translation
+        shell: pwsh
+        run: |
+          $sdk = (Resolve-Path 'build_runtime/Wells_Runtime').Path
+          $tutorial = (Resolve-Path '../renpy-7.4.11-sdk/tutorial').Path
+          python Wells_SDK/validate_tl_isolation.py "$sdk" "$tutorial"
 
       - name: Validate native SDK operations on tutorial
         shell: pwsh
@@ -98,11 +107,13 @@ jobs:
             'Wells_SDK/dialogue_manager.py',
             'Wells_Runtime/renpy.exe',
             'Wells_Runtime/renpy.py',
+            'Wells_Runtime/renpy/script.py',
             'Wells_Runtime/lib/windows-x86_64/pythonw.exe',
             'Wells_Runtime/LICENSE.txt'
           )) {
             if (-not (Test-Path "$root/$required")) { throw "Arquivo físico obrigatório ausente: $required" }
           }
+          if (Test-Path "$root/Wells_Runtime/renpy/script.pyo") { throw 'Pacote físico contém bytecode antigo do scanner RenPy.' }
           if (Test-Path "$root/renpy-7.4.11-sdk") { throw 'Nome antigo do SDK não deve existir no pacote Wells.' }
           if (Test-Path "$root/_internal") { throw 'Layout físico inválido: pasta _internal foi criada.' }
           if (Get-ChildItem $root -Recurse -Directory | Where-Object { $_.Name -like '_MEI*' }) {
