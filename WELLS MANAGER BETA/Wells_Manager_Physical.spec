@@ -16,9 +16,9 @@ hiddenimports = [
 ]
 hiddenimports += collect_submodules('docx')
 
-# Gerenciador still uses the existing dialogue backend internally. The physical
-# runtime is therefore retained as a dependency, but no Ren'Py control block is
-# exposed by this provisional launcher.
+# ONE-FILE build: every read-only dependency used by Gerenciador, Revisor and
+# Ferramentas is embedded in Wells_Manager.exe. PyInstaller extracts these
+# resources privately only while the program is running.
 datas = [
     ('wells.ico', '.'),
     ('Wells_Extractor/extractor_core.py', 'Wells_Extractor'),
@@ -28,14 +28,11 @@ datas = [
     ('Wells_Revisor/wells_guia_ptbr.py', 'Wells_Revisor'),
     ('Wells_Revisor/wells_isolador_renpy.py', 'Wells_Revisor'),
     ('Wells_Revisor/Palavras_PT-BR.txt', 'Wells_Revisor'),
-    ('Wells_Revisor/dados_linguisticos/LICENSE_fserb_MIT.txt', 'Wells_Revisor/dados_linguisticos'),
-    ('Wells_Revisor/dados_linguisticos/fserb_conjugacoes.txt', 'Wells_Revisor/dados_linguisticos'),
-    ('Wells_Revisor/dados_linguisticos/fserb_icf.csv', 'Wells_Revisor/dados_linguisticos'),
-    ('Wells_Revisor/dados_linguisticos/fserb_lexico.txt', 'Wells_Revisor/dados_linguisticos'),
-    ('Wells_Revisor/dados_linguisticos/fserb_verbos.txt', 'Wells_Revisor/dados_linguisticos'),
+    ('Wells_Revisor/dados_linguisticos', 'Wells_Revisor/dados_linguisticos'),
     ('Wells_SDK/sdk_core.py', 'Wells_SDK'),
     ('Wells_SDK/dialogue_roundtrip.py', 'Wells_SDK'),
     ('Wells_SDK/dialogue_manager.py', 'Wells_SDK'),
+    ('build_runtime/Wells_Runtime', 'Wells_Runtime'),
 ]
 
 a = Analysis(
@@ -47,16 +44,9 @@ a = Analysis(
 )
 pyz = PYZ(a.pure)
 exe = EXE(
-    pyz, a.scripts, [],
-    exclude_binaries=True,
+    pyz, a.scripts, a.binaries, a.datas, [],
     name='Wells_Manager', debug=False, bootloader_ignore_signals=False,
     strip=False, upx=True, console=False,
     disable_windowed_traceback=False, argv_emulation=False, target_arch=None,
     codesign_identity=None, entitlements_file=None, icon=['wells.ico'],
-    contents_directory='.',
-)
-coll = COLLECT(
-    exe, a.binaries, a.datas,
-    strip=False, upx=True, upx_exclude=[],
-    name='Wells_Manager',
 )
