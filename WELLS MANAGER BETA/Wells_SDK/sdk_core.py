@@ -65,19 +65,51 @@ def _format_strings_json(path):
 
 
 def _runner(sdk):
-    if os.name=='nt' and (sdk/'renpy.exe').is_file(): return [str(sdk/'renpy.exe')]
+    """Reproduce the Windows command path used by the original Ren'Py Launcher."""
+    if os.name=='nt':
+        pythonw=sdk/'lib'/'windows-x86_64'/'pythonw.exe'
+        renpy_py=sdk/'renpy.py'
+        if pythonw.is_file() and renpy_py.is_file():
+            return [str(pythonw),'-EO',str(renpy_py)]
+        if (sdk/'renpy.exe').is_file():
+            return [str(sdk/'renpy.exe')]
     if (sdk/'renpy.sh').is_file(): return [str(sdk/'renpy.sh')]
     raise SDKError("O executável do Wells Runtime não foi encontrado.")
 
 
+def _launcher_dump_file(sdk,project):
+    """Match Project.get_dump_filename() from the Ren'Py 7.4.11 Launcher."""
+    saves=project/'game'/'saves'
+    if saves.is_dir():
+        return saves/'navigation.json'
+    tmp=sdk/'tmp'/project.name
+    try:
+        tmp.mkdir(parents=True,exist_ok=True)
+        probe=tmp/'write_test.txt'
+        probe.write_text('Test',encoding='utf-8')
+        probe.unlink()
+        return tmp/'navigation.json'
+    except Exception:
+        import tempfile
+        return Path(tempfile.mkdtemp(prefix='wells-renpy-'))/'navigation.json'
+
+
 def run(project,args,log=None):
     project=_project_root(project); args=[str(x) for x in args]; sdk=_sdk_dir()
-    cmd=_runner(sdk)+[str(project)]+args
-    if log: log("Ren'Py: "+' '.join(args))
+    runner=_runner(sdk)
+    command_args=[str(project)]+args
+    # The original Launcher appends these flags to every project command.
+    command_args += ['--json-dump',str(_launcher_dump_file(sdk,project)),'--errors-in-editor']
+    cmd=runner+command_args
+    if log:
+        log("Ren'Py: "+' '.join(args))
+        log("Modo SDK: Launcher 7.4.11 nativo (-EO renpy.py)" if '-EO' in runner else "Modo SDK: renpy.exe compatível")
     startup=None
     if os.name=='nt':
         startup=subprocess.STARTUPINFO(); startup.dwFlags|=subprocess.STARTF_USESHOWWINDOW
-    proc=subprocess.Popen(cmd,cwd=str(sdk),stdout=subprocess.PIPE,stderr=subprocess.STDOUT,universal_newlines=True,errors='replace',startupinfo=startup)
+    env=dict(os.environ)
+    env.setdefault('RENPY_LAUNCHER_LANGUAGE','english')
+    proc=subprocess.Popen(cmd,cwd=str(sdk),env=env,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,universal_newlines=True,errors='replace',startupinfo=startup)
     output=[]
     for line in proc.stdout:
         line=line.rstrip('\r\n'); output.append(line)
@@ -86,7 +118,7 @@ def run(project,args,log=None):
     if code:
         tail='\n'.join(output[-12:]).strip()
         raise SDKError(tail or "O Ren'Py encerrou a operação com erro (código {}).".format(code))
-    return {'project':str(project),'command':args,'output':output}
+    return {'project':str(project),'command':args,'output':output,'runner':runner}
 
 
 def generate_translations(project,language,empty=True,log=None):

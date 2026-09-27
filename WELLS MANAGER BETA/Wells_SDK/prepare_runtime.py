@@ -21,9 +21,12 @@ EXCLUDE_TOP = {
 
 EXCLUDE_LIB = {"linux-i686", "linux-x86_64", "mac-x86_64", "windows-i686"}
 
+# pythonw.exe is intentionally retained. The original Ren'Py 7.4.11 Launcher
+# starts project commands through pythonw.exe -EO renpy.py, and Wells now
+# reproduces that native command path instead of calling renpy.exe directly.
 EXCLUDE_WINDOWS_X64 = {
     "d3dcompiler_47.dll", "libEGL.dll", "libGLESv2.dll", "nvdrs.dll",
-    "python.exe", "pythonw.exe", "say.vbs", "zsync.exe", "zsyncmake.exe",
+    "python.exe", "say.vbs", "zsync.exe", "zsyncmake.exe",
 }
 
 
@@ -65,8 +68,9 @@ def main():
     pruned_sources, pruned_bytes = prune_paired_python_sources()
 
     required = [
-        OUTPUT / "renpy.exe", OUTPUT / "renpy", OUTPUT / "renpy" / "translation",
+        OUTPUT / "renpy.exe", OUTPUT / "renpy.py", OUTPUT / "renpy", OUTPUT / "renpy" / "translation",
         OUTPUT / "renpy" / "common", OUTPUT / "lib" / "python2.7",
+        OUTPUT / "lib" / "windows-x86_64" / "pythonw.exe",
         OUTPUT / "lib" / "windows-x86_64" / "libpython2.7.dll",
         OUTPUT / "lib" / "windows-x86_64" / "librenpython.dll",
         OUTPUT / "LICENSE.txt",
