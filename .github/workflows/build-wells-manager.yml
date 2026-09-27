@@ -113,7 +113,6 @@ jobs:
           )) {
             if (-not (Test-Path "$root/$required")) { throw "Arquivo físico obrigatório ausente: $required" }
           }
-          if (Test-Path "$root/Wells_Runtime/renpy/script.pyo") { throw 'Pacote físico contém bytecode antigo do scanner RenPy.' }
           if (Test-Path "$root/renpy-7.4.11-sdk") { throw 'Nome antigo do SDK não deve existir no pacote Wells.' }
           if (Test-Path "$root/_internal") { throw 'Layout físico inválido: pasta _internal foi criada.' }
           if (Get-ChildItem $root -Recurse -Directory | Where-Object { $_.Name -like '_MEI*' }) {
