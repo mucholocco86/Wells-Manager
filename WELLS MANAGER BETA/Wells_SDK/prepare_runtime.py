@@ -48,6 +48,27 @@ def ignore(directory, names):
     return []
 
 
+def patch_translation_source_scan():
+    """Make game/tl an output-only tree only for Wells translation generation.
+
+    Ren'Py's generator already excludes tl/ when it enumerates source files,
+    but the engine parses all .rpy/.rpyc files before the command runs. That
+    earlier parse is what lets a broken pre-existing translation abort creation
+    of an unrelated new language. The Wells environment flag closes that gap.
+    """
+    script = OUTPUT / "renpy" / "script.py"
+    text = script.read_text(encoding="utf-8")
+    old = '''        for dir, fn in dirlist: # @ReservedAssignment\n\n            if fn.endswith(".rpy"):\n'''
+    new = '''        wells_originals_only = os.environ.get("WELLS_TRANSLATE_ORIGINALS_ONLY", "") == "1"\n        tl_prefix = renpy.config.tl_directory.replace("\\\\", "/").strip("/") + "/"\n\n        for dir, fn in dirlist: # @ReservedAssignment\n\n            # Wells Generate Translations treats game/tl strictly as output.\n            # Do not parse existing translated .rpy/.rpyc files while building\n            # a new translation from the original game scripts.\n            if wells_originals_only and fn.replace("\\\\", "/").startswith(tl_prefix):\n                continue\n\n            if fn.endswith(".rpy"):\n'''
+    if old not in text:
+        raise SystemExit("Ponto de patch do scanner Ren'Py 7.4.11 não encontrado.")
+    script.write_text(text.replace(old, new, 1), encoding="utf-8")
+    # pythonw.exe is launched with -O, so a stale script.pyo would take priority
+    # over our runtime-only source patch.
+    pyo = script.with_suffix(".pyo")
+    if pyo.exists(): pyo.unlink()
+
+
 def prune_paired_python_sources():
     count = 0; saved = 0
     for root in (OUTPUT / "renpy", OUTPUT / "lib" / "python2.7"):
@@ -65,11 +86,12 @@ def main():
     if OUTPUT.parent.exists(): shutil.rmtree(str(OUTPUT.parent))
     OUTPUT.parent.mkdir(parents=True, exist_ok=True)
     shutil.copytree(str(SOURCE), str(OUTPUT), ignore=ignore)
+    patch_translation_source_scan()
     pruned_sources, pruned_bytes = prune_paired_python_sources()
 
     required = [
-        OUTPUT / "renpy.exe", OUTPUT / "renpy.py", OUTPUT / "renpy", OUTPUT / "renpy" / "translation",
-        OUTPUT / "renpy" / "common", OUTPUT / "lib" / "python2.7",
+        OUTPUT / "renpy.exe", OUTPUT / "renpy.py", OUTPUT / "renpy", OUTPUT / "renpy" / "script.py",
+        OUTPUT / "renpy" / "translation", OUTPUT / "renpy" / "common", OUTPUT / "lib" / "python2.7",
         OUTPUT / "lib" / "windows-x86_64" / "pythonw.exe",
         OUTPUT / "lib" / "windows-x86_64" / "libpython2.7.dll",
         OUTPUT / "lib" / "windows-x86_64" / "librenpython.dll",
@@ -77,6 +99,8 @@ def main():
     ]
     missing = [str(p) for p in required if not p.exists()]
     if missing: raise SystemExit("Runtime reduzido incompleto: " + ", ".join(missing))
+    if (OUTPUT / "renpy" / "script.pyo").exists():
+        raise SystemExit("script.pyo antigo não pode coexistir com o scanner Wells modificado.")
 
     forbidden = [
         OUTPUT / "launcher", OUTPUT / "doc", OUTPUT / "module",
@@ -89,6 +113,7 @@ def main():
 
     output_size = directory_size(OUTPUT); saved = source_size - output_size
     print("Wells Runtime preparado em:", OUTPUT)
+    print("Scanner Wells: game/tl é somente saída durante Generate Translations.")
     print("SDK/authoring removidos:", ", ".join(sorted(EXCLUDE_TOP)))
     print("Plataformas removidas:", ", ".join(sorted(EXCLUDE_LIB)))
     print("Binários Windows headless removidos:", ", ".join(sorted(EXCLUDE_WINDOWS_X64)))
