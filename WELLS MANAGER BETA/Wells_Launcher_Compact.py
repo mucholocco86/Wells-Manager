@@ -1,15 +1,31 @@
 # -*- coding: utf-8 -*-
-"""Provisional Wells Manager launcher.
+"""Portable provisional Wells Manager launcher.
 
-This build deliberately exposes only the three useful blocks kept in active use:
-GERENCIADOR, REVISOR and FERRAMENTAS. The Ren'Py block remains frozen in the
-wells-manager-physical branch and is not presented in this interface.
+The user receives one Wells_Manager.exe containing GERENCIADOR, REVISOR and
+FERRAMENTAS plus every resource those three blocks need. The REN'PY block stays
+frozen and is not exposed in this build.
 """
 from __future__ import annotations
+
+import os
+import sys
+from pathlib import Path
 
 import Wells_Launcher_Fixed as fixed
 
 base = fixed.base
+
+# In PyInstaller one-file mode resources are unpacked automatically into its
+# private temporary bundle directory. Keep APP_DIR as the folder containing the
+# user's EXE (settings/logs/documents), but point all read-only packaged assets
+# and the internal Manager runtime at the bundle directory.
+if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
+    bundle = Path(sys._MEIPASS).resolve()
+    base.ROOT = bundle
+    base.EXTRACTOR_DIR = bundle / 'Wells_Extractor'
+    base.REVISOR_DIR = bundle / 'Wells_Revisor'
+    base.SDK_MODULE_DIR = bundle / 'Wells_SDK'
+    os.environ['WELLS_RENPY_SDK'] = str(bundle / 'Wells_Runtime')
 
 
 def _build_compact(self):
@@ -66,17 +82,18 @@ def _build_compact(self):
     self.log.pack(fill='both', expand=True)
 
 
-# Preserve the approved visual language and all existing functional handlers;
-# only the visible panel composition changes in this provisional build.
 base.WellsManager._build = _build_compact
 
 _previous_log = base.WellsManager._log
 
 
 def _compact_log(self, text):
-    if str(text) == "Ferramentas Wells e núcleo Ren'Py físico carregados.":
-        text = 'Gerenciador, Revisor e Ferramentas carregados.'
-    return _previous_log(self, text)
+    value = str(text)
+    if value == "Ferramentas Wells e núcleo Ren'Py físico carregados.":
+        value = 'Gerenciador, Revisor e Ferramentas carregados.'
+    if value.startswith("Runtime Ren'Py: "):
+        return
+    return _previous_log(self, value)
 
 
 base.WellsManager._log = _compact_log
