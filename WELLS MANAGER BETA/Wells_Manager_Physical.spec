@@ -2,7 +2,7 @@
 from PyInstaller.utils.hooks import collect_submodules
 
 hiddenimports = [
-    'Wells_Launcher',
+    'Wells_Launcher', 'Wells_Launcher_Fixed',
     'extractor_core', 'wells_revisor_core', 'wells_base_linguistica',
     'wells_guia_ptbr', 'wells_isolador_renpy', 'sdk_core',
     'dialogue_roundtrip', 'dialogue_manager',
@@ -16,9 +16,9 @@ hiddenimports = [
 ]
 hiddenimports += collect_submodules('docx')
 
-# These resources stay as normal physical files in the extracted Wells folder.
-# The reduced Ren'Py runtime is copied beside the launcher by the workflow after
-# PyInstaller finishes; it is intentionally NOT embedded in the executable.
+# Gerenciador still uses the existing dialogue backend internally. The physical
+# runtime is therefore retained as a dependency, but no Ren'Py control block is
+# exposed by this provisional launcher.
 datas = [
     ('wells.ico', '.'),
     ('Wells_Extractor/extractor_core.py', 'Wells_Extractor'),
@@ -39,7 +39,7 @@ datas = [
 ]
 
 a = Analysis(
-    ['Wells_Launcher_Fixed.py'],
+    ['Wells_Launcher_Compact.py'],
     pathex=['.', 'Wells_Extractor', 'Wells_Extractor/unrpyc', 'Wells_Revisor', 'Wells_SDK'],
     binaries=[], datas=datas, hiddenimports=hiddenimports,
     hookspath=[], hooksconfig={}, runtime_hooks=[], excludes=[],
