@@ -1,0 +1,5 @@
+abra o CMD diretamente na pasta onde se encontra os aquivos .py 
+com o click direito do mouse em modo de administrador por garantia
+e use a linha de comando abaixo...
+
+pyinstaller --noconsole --onefile --clean --name "Wells Translator" --icon=wells.ico --collect-all docx wells_translator.py
