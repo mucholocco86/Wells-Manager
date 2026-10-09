@@ -1,0 +1,9 @@
+Abra o CMD diretamente nesta pasta (a pasta onde estão main.py e Wells_Manager.spec).
+
+Comando para gerar o executável único:
+
+pyinstaller --clean --noconfirm Wells_Manager.spec
+
+O executável será criado em:
+
+dist\Wells_Manager.exe
