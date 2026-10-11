@@ -8,7 +8,7 @@ import importlib
 from datetime import datetime
 from pathlib import Path
 import tkinter as tk
-from tkinter import filedialog, messagebox, ttk
+from tkinter import filedialog, messagebox, ttk, simpledialog
 
 APP = "Wells Manager"
 SCRIPT_EXTENSIONS = {".rpy", ".rpyc", ".py", ".pyo", ".rpym", ".rpymc", ".txt", ".ttf", ".otf"}
@@ -44,6 +44,11 @@ from Wells_Translator.wells_json_core import (
     inject_json_translations,
 )
 from Wells_Revisor.wells_revisor_core import review_file
+from Wells_Revisor.wells_blindagem import (
+    LISTA_BLINDADOS, LISTA_TRADUZIVEIS,
+    carregar_listas, adicionar_termo, editar_termo, excluir_termo,
+    conflitos,
+)
 
 
 def load_last_dir():
@@ -311,10 +316,147 @@ class WellsManager(tk.Tk):
             self.review_docx_button = self._tool_button(
                 body, "▣  Revisar DOCX", lambda: self.choose_and_review("docx")
             )
+            self.blindagem_button = self._tool_button(
+                body, "▣  Gerenciar blindagem", self.open_blindagem
+            )
 
-            # Nomes blindados, nomes traduzíveis e revisão JSON serão
-            # acrescentados junto do motor JSON; não são simulados nesta etapa.
-        return self._open_tool_window("revisor", "Revisor", build, "240x145")
+            # A revisão JSON pareada será integrada depois da persistência,
+            # CRUD e política explícita de conflitos.
+        return self._open_tool_window("revisor", "Revisor", build, "260x180")
+
+    def _blindagem_path(self):
+        # No executável fica fisicamente ao lado do Wells Manager.exe.
+        # Em desenvolvimento, fica ao lado deste main.py.
+        return app_dir() / "blindagem.txt"
+
+    def open_blindagem(self):
+        path = self._blindagem_path()
+
+        def build(body):
+            body.pack_configure(padx=12, pady=12)
+            body.grid_columnconfigure(0, weight=1)
+            body.grid_columnconfigure(1, weight=1)
+            body.grid_rowconfigure(1, weight=1)
+
+            tk.Label(
+                body, text="Nomes blindados", bg="#222222", fg="#f0f0f0",
+                font=("Segoe UI", 10, "bold")
+            ).grid(row=0, column=0, sticky="w", padx=(0, 8))
+            tk.Label(
+                body, text="Nomes traduzíveis", bg="#222222", fg="#f0f0f0",
+                font=("Segoe UI", 10, "bold")
+            ).grid(row=0, column=1, sticky="w", padx=(8, 0))
+
+            left = tk.Frame(body, bg="#222222")
+            right = tk.Frame(body, bg="#222222")
+            left.grid(row=1, column=0, sticky="nsew", padx=(0, 8), pady=(5, 0))
+            right.grid(row=1, column=1, sticky="nsew", padx=(8, 0), pady=(5, 0))
+            for frame in (left, right):
+                frame.pack_propagate(False)
+
+            blindados_box = tk.Listbox(
+                left, bg="#2b2b2b", fg="#eeeeee", selectbackground="#555555",
+                relief="solid", bd=1, font=("Segoe UI", 10)
+            )
+            traduziveis_box = tk.Listbox(
+                right, bg="#2b2b2b", fg="#eeeeee", selectbackground="#555555",
+                relief="solid", bd=1, font=("Segoe UI", 10)
+            )
+            blindados_box.pack(fill="both", expand=True)
+            traduziveis_box.pack(fill="both", expand=True)
+
+            status = tk.StringVar(value=f"Arquivo: {path.name}")
+            tk.Label(
+                body, textvariable=status, bg="#222222", fg="#cfcfcf",
+                font=("Segoe UI", 9), anchor="w"
+            ).grid(row=3, column=0, columnspan=2, sticky="ew", pady=(10, 0))
+
+            def refresh():
+                data = carregar_listas(path)
+                blindados_box.delete(0, "end")
+                traduziveis_box.delete(0, "end")
+                for value in data[LISTA_BLINDADOS]:
+                    blindados_box.insert("end", value)
+                for value in data[LISTA_TRADUZIVEIS]:
+                    traduziveis_box.insert("end", value)
+                overlap = conflitos(data)
+                if overlap:
+                    status.set(
+                        f"Conflito pendente: {len(overlap)} termo(s) presente(s) nas duas listas."
+                    )
+                else:
+                    status.set(f"Arquivo: {path.name}")
+
+            def selected(box):
+                indexes = box.curselection()
+                if not indexes:
+                    return None
+                return box.get(indexes[0])
+
+            def add(kind):
+                title = "Nome blindado" if kind == LISTA_BLINDADOS else "Nome traduzível"
+                value = simpledialog.askstring(title, "Digite o termo:", parent=body.winfo_toplevel())
+                if value is None:
+                    return
+                try:
+                    adicionar_termo(path, kind, value)
+                    refresh()
+                except ValueError as exc:
+                    messagebox.showwarning(APP, str(exc), parent=body.winfo_toplevel())
+
+            def edit(kind, box):
+                old = selected(box)
+                if old is None:
+                    messagebox.showinfo(APP, "Selecione uma entrada para editar.", parent=body.winfo_toplevel())
+                    return
+                value = simpledialog.askstring(
+                    "Editar entrada", "Corrija o termo:", initialvalue=old,
+                    parent=body.winfo_toplevel()
+                )
+                if value is None:
+                    return
+                try:
+                    editar_termo(path, kind, old, value)
+                    refresh()
+                except ValueError as exc:
+                    messagebox.showwarning(APP, str(exc), parent=body.winfo_toplevel())
+
+            def remove(kind, box):
+                value = selected(box)
+                if value is None:
+                    messagebox.showinfo(APP, "Selecione uma entrada para excluir.", parent=body.winfo_toplevel())
+                    return
+                if not messagebox.askyesno(
+                    APP, f'Excluir "{value}" da lista?', parent=body.winfo_toplevel()
+                ):
+                    return
+                try:
+                    excluir_termo(path, kind, value)
+                    refresh()
+                except ValueError as exc:
+                    messagebox.showwarning(APP, str(exc), parent=body.winfo_toplevel())
+
+            controls_left = tk.Frame(body, bg="#222222")
+            controls_right = tk.Frame(body, bg="#222222")
+            controls_left.grid(row=2, column=0, sticky="ew", padx=(0, 8), pady=(6, 0))
+            controls_right.grid(row=2, column=1, sticky="ew", padx=(8, 0), pady=(6, 0))
+
+            for frame, kind, box in (
+                (controls_left, LISTA_BLINDADOS, blindados_box),
+                (controls_right, LISTA_TRADUZIVEIS, traduziveis_box),
+            ):
+                tk.Button(frame, text="Adicionar", command=lambda k=kind: add(k),
+                          font=("Segoe UI", 9)).pack(side="left", expand=True, fill="x")
+                tk.Button(frame, text="Editar", command=lambda k=kind, b=box: edit(k, b),
+                          font=("Segoe UI", 9)).pack(side="left", expand=True, fill="x", padx=4)
+                tk.Button(frame, text="Excluir", command=lambda k=kind, b=box: remove(k, b),
+                          font=("Segoe UI", 9)).pack(side="left", expand=True, fill="x")
+
+            refresh()
+
+        return self._open_tool_window(
+            "blindagem", "Nomes blindados e traduzíveis", build, "650x420"
+        )
 
     # O seletor lembra o local que estava sendo EXIBIDO, não a pasta que
     # acabou de ser selecionada. Assim, se o usuário vê "game" dentro da raiz
