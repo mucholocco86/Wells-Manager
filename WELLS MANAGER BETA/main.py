@@ -90,6 +90,9 @@ class WellsManager(tk.Tk):
         self.active_manual_button = None
         self.active_manual_original_text = None
         self.active_manual_original_command = None
+        # Subpainéis não modais. Permanecem vivos/minimizáveis para que, por
+        # exemplo, o Extractor aguarde enquanto o usuário trabalha no Revisor.
+        self.tool_windows = {}
         self.persistent_log_path = app_dir() / "Wells_Manager.log"
         self.status_var = tk.StringVar(value="Status: Nenhuma operação iniciada.")
         self.status = self.status_var
@@ -131,20 +134,17 @@ class WellsManager(tk.Tk):
             frame.grid_columnconfigure(0, weight=1)
 
         self.all_buttons = []
-        self.btn_rpyc_file = self._button(left, "▣  RPYC → RPY", self.choose_rpyc)
-        self.btn_rpyc_folder = self._button(left, "□  Pasta RPYC → RPY", self.choose_rpyc_folder)
-        self.btn_rpa_file = self._button(left, "◉  Extrair RPA", self.choose_rpa)
-        self.btn_rpa_folder = self._button(left, "□  Pasta RPA", self.choose_rpa_folder)
-        self.btn_rpa_create = self._button(left, "◉  Compactar RPA", self.choose_rpa_create)
+
+        # A janela principal agora é um painel de categorias. As operações já
+        # validadas continuam usando os mesmos callbacks, apenas foram movidas
+        # para subpainéis não modais.
+        self.decompiler_button = self._button(left, "▣  Decompilador", self.open_decompiler)
+        self.rpa_tools_button = self._button(left, "▣  Ferramentas RPA", self.open_rpa_tools)
 
         self.copy_project_button = self._button(center, "□  Copiar projeto", self.copy_project)
-        self.full_txt_button = self._button(center, "▣  TXT completo", self.extract_full_txt)
-        self.blocks_txt_button = self._button(center, "□  TXT em blocos", self.extract_blocks_txt)
-        self.full_docx_button = self._button(center, "▣  DOCX completo", self.extract_full_docx)
-        self.blocks_docx_button = self._button(center, "□  DOCX em blocos", self.extract_blocks_docx)
+        self.translations_button = self._button(center, "▣  Extrair traduções", self.open_translations)
 
-        self.review_txt_button = self._button(right, "▣  Revisar TXT", lambda: self.choose_and_review("txt"))
-        self.review_docx_button = self._button(right, "▣  Revisar DOCX", lambda: self.choose_and_review("docx"))
+        self.revisor_button = self._button(right, "▣  Revisar tradução", self.open_revisor)
 
         info = tk.Frame(self, bg="#222222")
         info.grid(row=3, column=0, sticky="ew", padx=26, pady=(11, 0))
@@ -178,6 +178,109 @@ class WellsManager(tk.Tk):
         b.pack(fill="x", pady=3)
         self.all_buttons.append(b)
         return b
+
+    def _tool_button(self, parent, text, command):
+        """Botão de subpainel; participa do bloqueio global durante operações."""
+        return self._button(parent, text, command)
+
+    def _open_tool_window(self, key, title, builder, geometry):
+        """Abre/restaura uma única instância não modal de cada ferramenta."""
+        win = self.tool_windows.get(key)
+        if win is not None:
+            try:
+                if win.winfo_exists():
+                    win.deiconify()
+                    win.lift()
+                    win.focus_force()
+                    return win
+            except tk.TclError:
+                pass
+
+        win = tk.Toplevel(self)
+        win.title(title)
+        win.geometry(geometry)
+        win.resizable(True, True)
+        win.configure(bg="#222222")
+        try:
+            win.iconbitmap(str(ROOT / "wells.ico"))
+        except Exception:
+            pass
+
+        self.tool_windows[key] = win
+
+        def close_window():
+            # Fechar a janela não apaga o estado de extração/reinjeção mantido
+            # pelo WellsManager; apenas destrói esta representação visual.
+            self.tool_windows.pop(key, None)
+            win.destroy()
+
+        win.protocol("WM_DELETE_WINDOW", close_window)
+        body = tk.Frame(win, bg="#222222")
+        body.pack(fill="both", expand=True, padx=15, pady=14)
+        builder(body)
+        return win
+
+    def open_decompiler(self):
+        def build(body):
+            self.btn_rpyc_file = self._tool_button(body, "▣  RPYC → RPY", self.choose_rpyc)
+            self.btn_rpyc_folder = self._tool_button(body, "□  Pasta RPYC → RPY", self.choose_rpyc_folder)
+        return self._open_tool_window("decompiler", "Decompilador", build, "228x130")
+
+    def open_rpa_tools(self):
+        def build(body):
+            self.btn_rpa_file = self._tool_button(body, "◉  Extrair RPA", self.choose_rpa)
+            self.btn_rpa_folder = self._tool_button(body, "□  Pasta RPA", self.choose_rpa_folder)
+            self.btn_rpa_create = self._tool_button(body, "◉  Compactar RPA", self.choose_rpa_create)
+        return self._open_tool_window("rpa", "Ferramentas RPA", build, "228x165")
+
+    def open_translations(self):
+        def build(body):
+            self.full_txt_button = self._tool_button(body, "▣  TL completa → TXT", self.extract_full_txt)
+            self.blocks_txt_button = self._tool_button(body, "□  TL em blocos → TXT", self.extract_blocks_txt)
+            self.full_docx_button = self._tool_button(body, "▣  TL completa → DOCX", self.extract_full_docx)
+            self.blocks_docx_button = self._tool_button(body, "□  TL em blocos → DOCX", self.extract_blocks_docx)
+
+            if self.pending_tl is not None and self.pending_format is not None:
+                waiting_button = {
+                    ("txt", "full"): self.full_txt_button,
+                    ("txt", "blocks"): self.blocks_txt_button,
+                    ("docx", "full"): self.full_docx_button,
+                    ("docx", "blocks"): self.blocks_docx_button,
+                }
+                # O modo (full/blocks) não era persistido separadamente na base.
+                # Identificamos o botão anterior quando ele ainda existe; se a
+                # janela foi fechada, oferecemos a injeção no primeiro botão do
+                # formato para não perder a sessão pendente.
+                previous_text = self.active_manual_original_text or ""
+                mode = "blocks" if "blocos" in previous_text.lower() else "full"
+                button = waiting_button[(self.pending_format, mode)]
+                original_command = button.cget("command")
+                self.active_manual_button = button
+                self.active_manual_original_text = button.cget("text")
+                self.active_manual_original_command = (
+                    self.extract_blocks_txt if (self.pending_format, mode) == ("txt", "blocks") else
+                    self.extract_full_txt if (self.pending_format, mode) == ("txt", "full") else
+                    self.extract_blocks_docx if mode == "blocks" else self.extract_full_docx
+                )
+                button.configure(text="Aguardando tradução...", command=self.inject)
+
+            # Os controles JSON entram aqui quando o novo motor JSON for
+            # conectado. Não criamos botões sem função apenas para imitar o
+            # mockup: a interface só expõe operações realmente disponíveis.
+        return self._open_tool_window("translations", "Wells Extractor", build, "250x205")
+
+    def open_revisor(self):
+        def build(body):
+            self.review_txt_button = self._tool_button(
+                body, "▣  Revisar TXT", lambda: self.choose_and_review("txt")
+            )
+            self.review_docx_button = self._tool_button(
+                body, "▣  Revisar DOCX", lambda: self.choose_and_review("docx")
+            )
+
+            # Nomes blindados, nomes traduzíveis e revisão JSON serão
+            # acrescentados junto do motor JSON; não são simulados nesta etapa.
+        return self._open_tool_window("revisor", "Revisor", build, "240x145")
 
     # O seletor lembra o local que estava sendo EXIBIDO, não a pasta que
     # acabou de ser selecionada. Assim, se o usuário vê "game" dentro da raiz
@@ -289,8 +392,15 @@ class WellsManager(tk.Tk):
     def _set_busy(self, busy):
         self.busy = busy
         state = "disabled" if busy else "normal"
+        live_buttons = []
         for b in self.all_buttons:
-            b.configure(state=state)
+            try:
+                if b.winfo_exists():
+                    b.configure(state=state)
+                    live_buttons.append(b)
+            except tk.TclError:
+                pass
+        self.all_buttons = live_buttons
         if not busy and self.active_manual_button is not None:
             self.active_manual_button.configure(state="normal")
 
@@ -532,14 +642,32 @@ class WellsManager(tk.Tk):
 
     def _set_waiting(self, tl, session, fmt, button, original_text, original_command):
         if self.active_manual_button is not None and self.active_manual_button is not button:
-            self.active_manual_button.configure(text=self.active_manual_original_text, command=self.active_manual_original_command)
+            try:
+                if self.active_manual_button.winfo_exists():
+                    self.active_manual_button.configure(
+                        text=self.active_manual_original_text,
+                        command=self.active_manual_original_command
+                    )
+            except tk.TclError:
+                pass
         self.pending_tl, self.pending_session, self.pending_format = str(tl), session, fmt
         self.active_manual_button, self.active_manual_original_text, self.active_manual_original_command = button, original_text, original_command
-        button.configure(text="Aguardando tradução...", command=self.inject)
+        try:
+            if button.winfo_exists():
+                button.configure(text="Aguardando tradução...", command=self.inject)
+        except tk.TclError:
+            pass
 
     def _clear_waiting(self):
         if self.active_manual_button is not None:
-            self.active_manual_button.configure(text=self.active_manual_original_text, command=self.active_manual_original_command)
+            try:
+                if self.active_manual_button.winfo_exists():
+                    self.active_manual_button.configure(
+                        text=self.active_manual_original_text,
+                        command=self.active_manual_original_command
+                    )
+            except tk.TclError:
+                pass
         self.pending_tl = self.pending_session = self.pending_format = None
         self.active_manual_button = self.active_manual_original_text = self.active_manual_original_command = None
 
