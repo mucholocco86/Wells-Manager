@@ -40,13 +40,21 @@ def _load_json(path):
     bom = raw.startswith(b"\xef\xbb\xbf")
     text = raw.decode("utf-8-sig")
     try:
-        data = json.loads(text)
+        # Lista de pares em vez de dict: alguns JSONs reais possuem a mesma
+        # chave mais de uma vez. Um dict Python apagaria silenciosamente as
+        # ocorrências anteriores. Aqui preservamos cada registro e sua ordem.
+        data = json.loads(text, object_pairs_hook=lambda pairs: pairs)
     except json.JSONDecodeError as exc:
         raise ValueError(f"JSON inválido: {exc}") from exc
 
-    if not isinstance(data, dict):
+    if not isinstance(data, list):
         raise ValueError("O JSON precisa ser um objeto no formato texto nativo -> tradução.")
-    bad = [k for k, v in data.items() if not isinstance(k, str) or not isinstance(v, str)]
+    bad = [
+        (k, v) for item in data
+        if not (isinstance(item, (list, tuple)) and len(item) == 2)
+        for k, v in [item]
+        if not isinstance(k, str) or not isinstance(v, str)
+    ]
     if bad:
         raise ValueError("O JSON contém entradas que não são pares de texto -> texto.")
 
@@ -92,7 +100,7 @@ def _decode_record(token, number, label):
 def _records(data):
     return [
         {"native": key, "translated": value}
-        for key, value in data.items()
+        for key, value in data
     ]
 
 
@@ -345,10 +353,23 @@ def _collect_pair(output_dir, fmt):
 
 
 def _serialize_json(data, style):
-    text = json.dumps(data, ensure_ascii=False, indent=style.get("indent", 2))
+    # Serialização manual do objeto para preservar inclusive chaves repetidas,
+    # algo que json.dumps(dict) não consegue representar.
+    indent = " " * int(style.get("indent", 2))
+    lines = ["{"]
+    total = len(data)
+    for idx, (key, value) in enumerate(data, 1):
+        comma = "," if idx < total else ""
+        lines.append(
+            indent
+            + json.dumps(key, ensure_ascii=False)
+            + ": "
+            + json.dumps(value, ensure_ascii=False)
+            + comma
+        )
+    lines.append("}")
     newline = style.get("newline", "\n")
-    if newline != "\n":
-        text = text.replace("\n", newline)
+    text = newline.join(lines)
     if style.get("final_newline", True):
         text += newline
     raw = text.encode("utf-8")
@@ -382,25 +403,33 @@ def inject_json_translations(json_path, output_dir, fmt, session=None, progress=
                 "A reinjeção foi cancelada para evitar deslocamento de traduções."
             )
 
+    json_keys = [key for key, _ in data]
     if len(natives) != len(data):
         raise ValueError(
             f"O documento possui {len(natives)} entradas, mas o JSON possui {len(data)}. "
             "A reinjeção foi cancelada."
         )
-    if len(set(natives)) != len(natives):
-        raise ValueError("O documento nativo contém chaves duplicadas; reinjeção cancelada.")
-    if set(natives) != set(data.keys()):
-        missing = [k for k in natives if k not in data]
-        raise ValueError(
-            "As chaves do documento nativo não correspondem exatamente ao JSON"
-            + (f". Exemplo ausente: {missing[0]!r}" if missing else ".")
-        )
 
-    # Âncora por chave, nunca por posição dentro do JSON.
-    updated = dict(data)
+    # A ordem também é parte da âncora. Isso permite trabalhar com JSONs reais
+    # que possuem chaves repetidas sem confundir uma ocorrência com outra.
+    if natives != json_keys:
+        for idx, (document_key, json_key) in enumerate(zip(natives, json_keys), 1):
+            if document_key != json_key:
+                raise ValueError(
+                    f"O nativo diverge do JSON no registro {idx}: "
+                    f"{document_key!r} != {json_key!r}. Reinjeção cancelada."
+                )
+        raise ValueError("As chaves do documento nativo não correspondem exatamente ao JSON.")
+
+    # Atualiza por ocorrência, preservando chave, ordem e duplicatas.
+    updated = []
     total = max(1, len(natives))
-    for idx, (native, value) in enumerate(zip(natives, translated), 1):
-        updated[native] = value
+    for idx, ((json_key, _old_value), native, value) in enumerate(
+        zip(data, natives, translated), 1
+    ):
+        if json_key != native:
+            raise ValueError(f"Âncora nativa divergente no registro {idx}.")
+        updated.append((json_key, value))
         if idx == 1 or idx % 500 == 0 or idx == len(natives):
             _notify(progress, 15 + 70 * idx / total, f"Preparando reinjeção: {idx}/{len(natives)}")
 
