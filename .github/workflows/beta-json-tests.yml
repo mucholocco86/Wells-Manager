@@ -83,5 +83,17 @@ jobs:
                   assert list(after.keys()) == list(original.keys())
                   assert after["Dalen"] == "Dalen"
 
+          # Caso real importante: JSON pode conter chave duplicada. O motor
+          # deve preservar as duas ocorrências em vez de colapsá-las em dict.
+          with tempfile.TemporaryDirectory() as td:
+              root = Path(td)
+              source = root / "strings.json"
+              source.write_text('{"Guard":"Guarda 1","Guard":"Guarda 2"}\n', encoding="utf-8")
+              result = export_json_full_txt(source, root, return_session=True)
+              assert result[1] == 2
+              inject_json_translations(source, root, "txt", session=result[-1])
+              pairs = json.loads(source.read_text(encoding="utf-8"), object_pairs_hook=lambda x: x)
+              assert pairs == [("Guard", "Guarda 1"), ("Guard", "Guarda 2")]
+
           print("JSON core tests OK")
           PY
