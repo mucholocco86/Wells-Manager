@@ -1,0 +1,87 @@
+name: Wells Manager Beta JSON tests
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'WELLS MANAGER BETA/**'
+      - '.github/workflows/beta-json-tests.yml'
+  workflow_dispatch:
+
+jobs:
+  json-core:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install runtime dependency
+        run: python -m pip install python-docx
+      - name: Compile Beta Python
+        working-directory: WELLS MANAGER BETA
+        run: |
+          python -m py_compile main.py
+          python -m py_compile Wells_Translator/wells_translator_core.py
+          python -m py_compile Wells_Translator/wells_json_core.py
+          python -m py_compile Wells_Revisor/wells_revisor_core.py
+      - name: Exercise JSON full/block TXT/DOCX and reinjection
+        working-directory: WELLS MANAGER BETA
+        run: |
+          python - <<'PY'
+          import json
+          import tempfile
+          from pathlib import Path
+          from Wells_Translator.wells_json_core import (
+              export_json_full_txt, export_json_blocks_txt,
+              export_json_full_docx, export_json_blocks_docx,
+              inject_json_translations,
+          )
+
+          original = {
+              "Dalen": "O vale",
+              "Princess Gwen": "Princesa Gwen",
+              "Line with\nnewline": "Linha com\nquebra",
+              'Quote "test"': 'Teste "aspas"',
+              "[mc] is here": "[mc] está aqui",
+          }
+
+          exporters = [
+              ("txt", "full", export_json_full_txt, {}),
+              ("txt", "blocks", export_json_blocks_txt, {"max_bytes": 80}),
+              ("docx", "full", export_json_full_docx, {}),
+              ("docx", "blocks", export_json_blocks_docx, {"max_file_bytes": 37000}),
+          ]
+
+          for fmt, mode, exporter, extra in exporters:
+              with tempfile.TemporaryDirectory() as td:
+                  root = Path(td)
+                  source = root / "strings.json"
+                  source.write_text(json.dumps(original, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+                  result = exporter(source, root, return_session=True, **extra)
+                  session = result[-1]
+
+                  # Reinjeção sem edição precisa ser semanticamente idêntica.
+                  count, _ = inject_json_translations(source, root, fmt, session=session)
+                  assert count == len(original)
+                  assert json.loads(source.read_text(encoding="utf-8")) == original
+
+                  # Chaves nativas continuam intocadas e somente valores mudam.
+                  if fmt == "txt":
+                      targets = sorted(root.glob("traduzido*.txt"))
+                      p = targets[0]
+                      lines = p.read_text(encoding="utf-8").splitlines()
+                      lines[0] = json.dumps("Dalen", ensure_ascii=False)
+                      p.write_text("\n".join(lines) + "\n", encoding="utf-8")
+                  else:
+                      # O round-trip DOCX já testa alinhamento e leitura; a
+                      # alteração dirigida é coberta no TXT com a mesma injeção.
+                      continue
+
+                  inject_json_translations(source, root, fmt, session=session)
+                  after = json.loads(source.read_text(encoding="utf-8"))
+                  assert list(after.keys()) == list(original.keys())
+                  assert after["Dalen"] == "Dalen"
+
+          print("JSON core tests OK")
+          PY
