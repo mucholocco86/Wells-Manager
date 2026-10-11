@@ -38,6 +38,11 @@ from Wells_Translator.wells_translator_core import (
     export_full, export_blocks, inject_translations,
     export_full_docx, export_blocks_docx, inject_docx_translations,
 )
+from Wells_Translator.wells_json_core import (
+    export_json_full_txt, export_json_blocks_txt,
+    export_json_full_docx, export_json_blocks_docx,
+    inject_json_translations,
+)
 from Wells_Revisor.wells_revisor_core import review_file
 
 
@@ -87,6 +92,12 @@ class WellsManager(tk.Tk):
         self.pending_tl = None
         self.pending_session = None
         self.pending_format = None
+        self.pending_json = None
+        self.pending_json_session = None
+        self.pending_json_format = None
+        self.pending_json_button = None
+        self.pending_json_original_text = None
+        self.pending_json_original_command = None
         self.active_manual_button = None
         self.active_manual_original_text = None
         self.active_manual_original_command = None
@@ -240,6 +251,13 @@ class WellsManager(tk.Tk):
             self.full_docx_button = self._tool_button(body, "▣  TL completa → DOCX", self.extract_full_docx)
             self.blocks_docx_button = self._tool_button(body, "□  TL em blocos → DOCX", self.extract_blocks_docx)
 
+            spacer = tk.Frame(body, bg="#222222", height=7)
+            spacer.pack(fill="x")
+            self.json_full_txt_button = self._tool_button(body, "▣  JSON completa → TXT", self.extract_json_full_txt)
+            self.json_blocks_txt_button = self._tool_button(body, "□  JSON em blocos → TXT", self.extract_json_blocks_txt)
+            self.json_full_docx_button = self._tool_button(body, "▣  JSON completa → DOCX", self.extract_json_full_docx)
+            self.json_blocks_docx_button = self._tool_button(body, "□  JSON em blocos → DOCX", self.extract_json_blocks_docx)
+
             if self.pending_tl is not None and self.pending_format is not None:
                 waiting_button = {
                     ("txt", "full"): self.full_txt_button,
@@ -264,10 +282,26 @@ class WellsManager(tk.Tk):
                 )
                 button.configure(text="Aguardando tradução...", command=self.inject)
 
-            # Os controles JSON entram aqui quando o novo motor JSON for
-            # conectado. Não criamos botões sem função apenas para imitar o
-            # mockup: a interface só expõe operações realmente disponíveis.
-        return self._open_tool_window("translations", "Wells Extractor", build, "250x205")
+            if self.pending_json is not None and self.pending_json_format is not None:
+                previous = self.pending_json_original_text or ""
+                mode = "blocks" if "blocos" in previous.lower() else "full"
+                json_button = {
+                    ("txt", "full"): self.json_full_txt_button,
+                    ("txt", "blocks"): self.json_blocks_txt_button,
+                    ("docx", "full"): self.json_full_docx_button,
+                    ("docx", "blocks"): self.json_blocks_docx_button,
+                }[(self.pending_json_format, mode)]
+                self.pending_json_button = json_button
+                self.pending_json_original_text = json_button.cget("text")
+                self.pending_json_original_command = {
+                    ("txt", "full"): self.extract_json_full_txt,
+                    ("txt", "blocks"): self.extract_json_blocks_txt,
+                    ("docx", "full"): self.extract_json_full_docx,
+                    ("docx", "blocks"): self.extract_json_blocks_docx,
+                }[(self.pending_json_format, mode)]
+                json_button.configure(text="Aguardando revisão...", command=self.inject_json)
+
+        return self._open_tool_window("translations", "Wells Extractor", build, "270x350")
 
     def open_revisor(self):
         def build(body):
@@ -405,6 +439,12 @@ class WellsManager(tk.Tk):
             try:
                 if self.active_manual_button.winfo_exists():
                     self.active_manual_button.configure(state="normal")
+            except tk.TclError:
+                pass
+        if not busy and self.pending_json_button is not None:
+            try:
+                if self.pending_json_button.winfo_exists():
+                    self.pending_json_button.configure(state="normal")
             except tk.TclError:
                 pass
 
@@ -708,6 +748,118 @@ class WellsManager(tk.Tk):
     def extract_blocks_txt(self): self._extract_translation("blocks", "txt")
     def extract_full_docx(self): self._extract_translation("full", "docx")
     def extract_blocks_docx(self): self._extract_translation("blocks", "docx")
+
+    # Ferramenta JSON: fluxo independente do TL/RPY tradicional.
+    def _set_json_waiting(self, json_path, session, fmt, button, original_text, original_command):
+        if self.pending_json_button is not None and self.pending_json_button is not button:
+            try:
+                if self.pending_json_button.winfo_exists():
+                    self.pending_json_button.configure(
+                        text=self.pending_json_original_text,
+                        command=self.pending_json_original_command
+                    )
+            except tk.TclError:
+                pass
+        self.pending_json = str(Path(json_path).resolve())
+        self.pending_json_session = session
+        self.pending_json_format = fmt
+        self.pending_json_button = button
+        self.pending_json_original_text = original_text
+        self.pending_json_original_command = original_command
+        try:
+            if button.winfo_exists():
+                button.configure(text="Aguardando revisão...", command=self.inject_json)
+        except tk.TclError:
+            pass
+
+    def _clear_json_waiting(self):
+        if self.pending_json_button is not None:
+            try:
+                if self.pending_json_button.winfo_exists():
+                    self.pending_json_button.configure(
+                        text=self.pending_json_original_text,
+                        command=self.pending_json_original_command
+                    )
+            except tk.TclError:
+                pass
+        self.pending_json = self.pending_json_session = self.pending_json_format = None
+        self.pending_json_button = self.pending_json_original_text = self.pending_json_original_command = None
+
+    def _extract_json(self, kind, fmt):
+        if self.busy:
+            return
+        path = self._ask_openfilename(
+            "Selecione o JSON da tradução automática",
+            [("Arquivo JSON", "*.json"), ("Todos os arquivos", "*.*")]
+        )
+        if not path:
+            return
+
+        labels = {
+            ("full", "txt"): (export_json_full_txt, self.json_full_txt_button, "▣  JSON completa → TXT", self.extract_json_full_txt),
+            ("blocks", "txt"): (export_json_blocks_txt, self.json_blocks_txt_button, "□  JSON em blocos → TXT", self.extract_json_blocks_txt),
+            ("full", "docx"): (export_json_full_docx, self.json_full_docx_button, "▣  JSON completa → DOCX", self.extract_json_full_docx),
+            ("blocks", "docx"): (export_json_blocks_docx, self.json_blocks_docx_button, "□  JSON em blocos → DOCX", self.extract_json_blocks_docx),
+        }
+        fn, button, original, original_command = labels[(kind, fmt)]
+        self.progress["value"] = 0
+        self.status_var.set(f"Status: Extraindo JSON para {fmt.upper()}...")
+        self._begin_log_session(f"EXTRAIR JSON → {fmt.upper()}")
+        self._log(f"JSON: {path}")
+
+        def worker():
+            return fn(path, app_dir(), return_session=True, progress=self._progress_from_worker)
+
+        def done(result):
+            output, count, *rest = result
+            session = rest[-1]
+            self._set_json_waiting(path, session, fmt, button, original, original_command)
+            self.progress["value"] = 100
+            if kind == "blocks":
+                blocks = rest[0]
+                self.status_var.set(f"Status: {count} entradas JSON em {blocks} blocos {fmt.upper()}.")
+                self._log(f"[OK] Extração JSON {fmt.upper()} em blocos: {count} registros / {blocks} blocos.")
+            else:
+                self.status_var.set(f"Status: {count} entradas JSON extraídas.")
+                self._log(f"[OK] Extração JSON {fmt.upper()} completa: {count} registros.")
+                self._log(f"[OK] Arquivos: {output / ('nativo.' + fmt)}")
+                self._log(f"[OK] Arquivos: {output / ('traduzido.' + fmt)}")
+
+        self._run_background(worker, done, f"Status: Erro na extração JSON {fmt.upper()}.")
+
+    def extract_json_full_txt(self): self._extract_json("full", "txt")
+    def extract_json_blocks_txt(self): self._extract_json("blocks", "txt")
+    def extract_json_full_docx(self): self._extract_json("full", "docx")
+    def extract_json_blocks_docx(self): self._extract_json("blocks", "docx")
+
+    def inject_json(self):
+        if not self.pending_json:
+            messagebox.showinfo(APP, "Não há uma extração JSON aguardando reinjeção.")
+            return
+        fmt = self.pending_json_format
+        self.progress["value"] = 0
+        self.status_var.set("Status: Validando e reinjetando revisão no JSON...")
+        self._begin_log_session("REINJETAR JSON")
+        self._log(f"JSON: {self.pending_json}")
+
+        def worker():
+            return inject_json_translations(
+                self.pending_json,
+                app_dir(),
+                fmt,
+                session=self.pending_json_session,
+                progress=self._progress_from_worker,
+            )
+
+        def done(result):
+            count, mode = result
+            self.progress["value"] = 100
+            self.status_var.set(f"Status: {count} entradas reinjetadas no JSON.")
+            self._log(f"[OK] Injeção JSON concluída: {count} registros ({mode}).")
+            self._clear_json_waiting()
+            messagebox.showinfo(APP, f"Reinjeção JSON concluída.\n\n{count} entradas atualizadas.")
+
+        self._run_background(worker, done, "Status: Erro na reinjeção JSON.")
 
     def inject(self):
         tl = self.pending_tl or self.choose_tl("Selecione a mesma pasta TL usada na extração")
