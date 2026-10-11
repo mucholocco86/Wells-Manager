@@ -18,6 +18,7 @@ a = Analysis(
     hiddenimports=docx_hiddenimports + [
         'Wells_Extractor.main',
         'Wells_Translator.wells_translator_core',
+        'Wells_Translator.wells_json_core',
         'Wells_Revisor.wells_revisor_core',
         'wells_guia_ptbr', 'wells_isolador_renpy', 'wells_base_linguistica',
         'argparse', 'glob', 'struct', 'zlib', 'base64', 'pickletools',
