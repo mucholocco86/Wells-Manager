@@ -402,7 +402,11 @@ class WellsManager(tk.Tk):
                 pass
         self.all_buttons = live_buttons
         if not busy and self.active_manual_button is not None:
-            self.active_manual_button.configure(state="normal")
+            try:
+                if self.active_manual_button.winfo_exists():
+                    self.active_manual_button.configure(state="normal")
+            except tk.TclError:
+                pass
 
     def _emit(self, kind, *args): self.events.put((kind, args))
     def _progress_from_worker(self, value, text=None): self.events.put(("translator_progress", (value, text)))
@@ -676,10 +680,10 @@ class WellsManager(tk.Tk):
         if not tl: return
         self.progress["value"] = 0
         labels = {
-            ("full","txt"): (export_full, self.full_txt_button, "▣  TXT completo", self.extract_full_txt),
-            ("blocks","txt"): (export_blocks, self.blocks_txt_button, "□  TXT em blocos", self.extract_blocks_txt),
-            ("full","docx"): (export_full_docx, self.full_docx_button, "▣  DOCX completo", self.extract_full_docx),
-            ("blocks","docx"): (export_blocks_docx, self.blocks_docx_button, "□  DOCX em blocos", self.extract_blocks_docx),
+            ("full","txt"): (export_full, self.full_txt_button, "▣  TL completa → TXT", self.extract_full_txt),
+            ("blocks","txt"): (export_blocks, self.blocks_txt_button, "□  TL em blocos → TXT", self.extract_blocks_txt),
+            ("full","docx"): (export_full_docx, self.full_docx_button, "▣  TL completa → DOCX", self.extract_full_docx),
+            ("blocks","docx"): (export_blocks_docx, self.blocks_docx_button, "□  TL em blocos → DOCX", self.extract_blocks_docx),
         }
         fn, button, original, original_command = labels[(kind, fmt)]
         self.status_var.set(f"Status: Extraindo {fmt.upper()}..."); self._log(f"Pasta TL: {tl}")
