@@ -49,14 +49,12 @@ def _load_json(path):
 
     if not isinstance(data, list):
         raise ValueError("O JSON precisa ser um objeto no formato texto nativo -> tradução.")
-    bad = [
-        (k, v) for item in data
-        if not (isinstance(item, (list, tuple)) and len(item) == 2)
-        for k, v in [item]
-        if not isinstance(k, str) or not isinstance(v, str)
-    ]
-    if bad:
-        raise ValueError("O JSON contém entradas que não são pares de texto -> texto.")
+    for item in data:
+        if not (isinstance(item, (list, tuple)) and len(item) == 2):
+            raise ValueError("O JSON contém uma estrutura interna não suportada.")
+        key, value = item
+        if not isinstance(key, str) or not isinstance(value, str):
+            raise ValueError("O JSON contém entradas que não são pares de texto -> texto.")
 
     # Detecta o estilo dos exemplos sem transformar isso em requisito.
     indent = 4 if "\n    \"" in text[:10000] else 2
