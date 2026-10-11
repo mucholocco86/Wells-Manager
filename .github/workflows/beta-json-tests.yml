@@ -25,6 +25,11 @@ jobs:
           python -m py_compile Wells_Translator/wells_translator_core.py
           python -m py_compile Wells_Translator/wells_json_core.py
           python -m py_compile Wells_Revisor/wells_revisor_core.py
+          python -m py_compile Wells_Revisor/wells_blindagem.py
+      - name: Exercise blindagem persistence and CRUD
+        working-directory: WELLS MANAGER BETA
+        run: python -m unittest discover -s tests -p 'test_*.py' -v
+
       - name: Exercise JSON full/block TXT/DOCX and reinjection
         working-directory: WELLS MANAGER BETA
         run: |
